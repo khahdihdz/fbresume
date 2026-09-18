@@ -95,7 +95,7 @@ object FacebookDetector {
             for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
         }
 
-        walk(root)
+        root?.let(::walk)
         return best
     }
 
