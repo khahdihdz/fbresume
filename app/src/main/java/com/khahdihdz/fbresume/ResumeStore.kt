@@ -23,18 +23,16 @@ class ResumeStore(context: Context) {
             .put("positionMs", item.positionMs)
             .put("durationMs", item.durationMs)
             .put("updatedAt", item.updatedAt)
-        prefs.edit().putString("item:${item.key}", obj.toString()).apply()
+        prefs.edit().putString("item:" + item.key, obj.toString()).apply()
     }
 
     fun get(key: String): ResumeItem? {
-        val raw = prefs.getString("item:$key", null) ?: return null
+        val raw = prefs.getString("item:" + key, null) ?: return null
         val o = JSONObject(raw)
-        return ResumeItem(
-            o.optString("key"), o.optString("title"), o.optString("url"),
-            o.optLong("positionMs"), o.optLong("durationMs"), o.optLong("updatedAt")
-        )
+        return ResumeItem(o.optString("key"), o.optString("title"), o.optString("url"), o.optLong("positionMs"), o.optLong("durationMs"), o.optLong("updatedAt"))
     }
 
-    fun keys(): List<String> =
-        prefs.all.keys.filter { it.startsWith("item:") }.map { it.removePrefix("item:") }
+    fun keys(): List<String> = prefs.all.keys.filter { it.startsWith("item:") }.map { it.removePrefix("item:") }
+    fun all(): List<ResumeItem> = keys().mapNotNull(::get).sortedByDescending { it.updatedAt }
+    fun remove(key: String) { prefs.edit().remove("item:" + key).apply() }
 }
