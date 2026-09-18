@@ -1,12 +1,27 @@
 package com.khahdihdz.fbresume
 
+import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
+import java.security.MessageDigest
+
+data class VideoState(
+    val currentMs: Long,
+    val durationMs: Long,
+    val title: String,
+    val key: String,
+    val seekNode: AccessibilityNodeInfo?
+)
 
 object FacebookDetector {
     const val FACEBOOK_PACKAGE = "com.facebook.katana"
+    const val FACEBOOK_LITE_PACKAGE = "com.facebook.lite"
+    private val timeRegex = Regex("""(?<!\d)(\d{1,4}):(\d{2})(?::(\d{2}))?(?!\d)""")
+    private val genericText = setOf("Facebook","Like","Comment","Share","Follow","More","Options","Play","Pause","Mute","Unmute","Close","Back","Next")
 
-    fun isFacebook(packageName: CharSequence?): Boolean =
-        packageName?.toString() == FACEBOOK_PACKAGE
+    fun isFacebook(packageName: CharSequence?): Boolean {
+        val name = packageName?.toString() ?: return false
+        return name == FACEBOOK_PACKAGE || name == FACEBOOK_LITE_PACKAGE
+    }
 
     fun collectTexts(root: AccessibilityNodeInfo?): List<String> {
         if (root == null) return emptyList()
@@ -20,6 +35,69 @@ object FacebookDetector {
         return out.distinct()
     }
 
-    fun findTimeStrings(root: AccessibilityNodeInfo?): List<String> =
-        collectTexts(root).filter { Regex("""^\d{1,3}:\d{2}(:\d{2})?$""").matches(it) }
+    fun parseTimeMs(value: String): Long? {
+        val match = timeRegex.find(value) ?: return null
+        val first = match.groupValues[1].toLongOrNull() ?: return null
+        val minuteOrHour = match.groupValues[2].toLongOrNull() ?: return null
+        val seconds = match.groupValues[3].takeIf { it.isNotEmpty() }?.toLongOrNull() ?: 0L
+        if (minuteOrHour > 59 || seconds > 59) return null
+        return (first * 3600L + minuteOrHour * 60L + seconds) * 1000L
+    }
+
+    fun findTimeValues(root: AccessibilityNodeInfo?): List<Long> =
+        collectTexts(root).flatMap { text ->
+            timeRegex.findAll(text).mapNotNull { parseTimeMs(it.value) }.toList()
+        }.distinct()
+
+    fun findVideoState(root: AccessibilityNodeInfo?): VideoState? {
+        val times = findTimeValues(root).sorted()
+        if (times.size < 2) return null
+        val duration = times.maxOrNull() ?: return null
+        val current = times.filter { it < duration }.maxOrNull() ?: return null
+        if (duration < 5_000L || current >= duration) return null
+
+        val title = collectTexts(root)
+            .filter { it.length in 5..180 }
+            .filterNot { genericText.contains(it) }
+            .filterNot { timeRegex.containsMatchIn(it) }
+            .maxByOrNull { it.length } ?: "Facebook video"
+
+        return VideoState(current, duration, title, stableKey(title), findSeekNode(root))
+    }
+
+    fun findSeekNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        var best: AccessibilityNodeInfo? = null
+        fun walk(node: AccessibilityNodeInfo) {
+            val cls = node.className?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            if ((cls.contains("seekbar") || cls.contains("progressbar") || desc.contains("seek") || desc.contains("progress"))
+                && node.isVisibleToUser && node.isEnabled) {
+                best = node
+                return
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let(::walk)
+                if (best != null) return
+            }
+        }
+        walk(root)
+        return best
+    }
+
+    fun seek(node: AccessibilityNodeInfo?, targetMs: Long, durationMs: Long): Boolean {
+        if (node == null || durationMs <= 0L) return false
+        val ratio = (targetMs.toDouble() / durationMs.toDouble()).coerceIn(0.0, 1.0)
+        val range = node.rangeInfo
+        if (range != null && node.isActionSupported(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)) {
+            val value = (range.min + (range.max - range.min) * ratio).toFloat()
+            val args = Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value) }
+            if (node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, args)) return true
+        }
+        return false
+    }
+
+    private fun stableKey(title: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(title.trim().lowercase().toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }.take(24)
+    }
 }
