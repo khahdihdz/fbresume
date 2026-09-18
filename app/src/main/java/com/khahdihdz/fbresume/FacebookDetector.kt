@@ -1,5 +1,6 @@
 package com.khahdihdz.fbresume
 
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import java.security.MessageDigest
@@ -38,10 +39,13 @@ object FacebookDetector {
     fun parseTimeMs(value: String): Long? {
         val match = timeRegex.find(value) ?: return null
         val first = match.groupValues[1].toLongOrNull() ?: return null
-        val minuteOrHour = match.groupValues[2].toLongOrNull() ?: return null
-        val seconds = match.groupValues[3].takeIf { it.isNotEmpty() }?.toLongOrNull() ?: 0L
-        if (minuteOrHour > 59 || seconds > 59) return null
-        return (first * 3600L + minuteOrHour * 60L + seconds) * 1000L
+        val second = match.groupValues[2].toLongOrNull() ?: return null
+        val third = match.groupValues[3].takeIf { it.isNotEmpty() }?.toLongOrNull()
+        return if (third == null) {
+            if (second > 59) null else (first * 60L + second) * 1000L
+        } else {
+            if (second > 59 || third > 59) null else (first * 3600L + second * 60L + third) * 1000L
+        }
     }
 
     fun findTimeValues(root: AccessibilityNodeInfo?): List<Long> =
@@ -50,13 +54,17 @@ object FacebookDetector {
         }.distinct()
 
     fun findVideoState(root: AccessibilityNodeInfo?): VideoState? {
-        val times = findTimeValues(root).sorted()
+        val texts = collectTexts(root)
+        val times = texts.flatMap { text ->
+            timeRegex.findAll(text).mapNotNull { parseTimeMs(it.value) }
+        }.distinct()
+
         if (times.size < 2) return null
         val duration = times.maxOrNull() ?: return null
         val current = times.filter { it < duration }.maxOrNull() ?: return null
         if (duration < 5_000L || current >= duration) return null
 
-        val title = collectTexts(root)
+        val title = texts
             .filter { it.length in 5..180 }
             .filterNot { genericText.contains(it) }
             .filterNot { timeRegex.containsMatchIn(it) }
@@ -67,33 +75,37 @@ object FacebookDetector {
 
     fun findSeekNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         var best: AccessibilityNodeInfo? = null
+        var bestScore = Int.MIN_VALUE
+
         fun walk(node: AccessibilityNodeInfo) {
             val cls = node.className?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-            if ((cls.contains("seekbar") || cls.contains("progressbar") || desc.contains("seek") || desc.contains("progress"))
-                && node.isVisibleToUser && node.isEnabled) {
-                best = node
-                return
+            if (node.isVisibleToUser && node.isEnabled &&
+                (cls.contains("seekbar") || cls.contains("progressbar") || desc.contains("seek") || desc.contains("progress"))) {
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
+                val score = rect.width() + if (node.rangeInfo != null) 1000 else 0
+                if (score > bestScore) {
+                    best = node
+                    bestScore = score
+                }
             }
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let(::walk)
-                if (best != null) return
-            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
         }
+
         walk(root)
         return best
     }
 
     fun seek(node: AccessibilityNodeInfo?, targetMs: Long, durationMs: Long): Boolean {
         if (node == null || durationMs <= 0L) return false
+        val range = node.rangeInfo ?: return false
         val ratio = (targetMs.toDouble() / durationMs.toDouble()).coerceIn(0.0, 1.0)
-        val range = node.rangeInfo
-        if (range != null && node.isActionSupported(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS)) {
-            val value = (range.min + (range.max - range.min) * ratio).toFloat()
-            val args = Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value) }
-            if (node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, args)) return true
+        val value = (range.min + (range.max - range.min) * ratio).toFloat()
+        val args = Bundle().apply {
+            putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value)
         }
-        return false
+        return node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, args)
     }
 
     private fun stableKey(title: String): String {
