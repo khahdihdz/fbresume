@@ -33,6 +33,23 @@ APK:
     app/build/outputs/apk/debug/app-debug.apk
 
 ## Termux
+Trình cài đặt sẽ tự kiểm tra và cài các gói bắt buộc còn thiếu (hiện tại: `git`, `jq`).
+
     cd ~/fbresume
     bash termux/install.sh
+
+Sau khi cài, có thể kiểm tra toàn bộ môi trường:
+
+    fbresume doctor
+
+Nếu thiếu quyền bộ nhớ, công cụ sẽ hướng dẫn chạy:
+
+    termux-setup-storage
+
+Lệnh `open URL` không bắt buộc. Nếu muốn mở URL Facebook trực tiếp từ Termux, có thể cài Termux:API và gói `termux-api`; chương trình sẽ nhận biết nếu thành phần này chưa có và đưa ra hướng dẫn thay vì tự coi đó là lỗi bắt buộc.
+
     fbresume
+    fbresume doctor
+    fbresume list
+    fbresume backup
+    fbresume open "https://www.facebook.com/"
