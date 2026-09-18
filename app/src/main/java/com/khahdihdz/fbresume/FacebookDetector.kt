@@ -74,6 +74,8 @@ object FacebookDetector {
     }
 
     fun findSeekNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (root == null) return null
+
         var best: AccessibilityNodeInfo? = null
         var bestScore = Int.MIN_VALUE
 
