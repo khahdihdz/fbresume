@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity() {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     }
                     addNavSection(tabContent, "Kiểm tra cập nhật", "Kiểm tra phiên bản FBResume mới nhất", "↻") {
-                        dialog.create().dismiss()
+                        alert.dismiss()
                         checkForUpdate(true)
                     }
                 }
