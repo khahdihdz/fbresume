@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6), dp(4), dp(6), dp(4))
-            background = rounded(Color.WHITE, 24)
+            background = rounded(surfaceColor, 24)
         }
 
         val header = LinearLayout(this).apply {
@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         }
         val headerBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         headerBox.addView(label("FBResume", 22f, Color.rgb(20, 30, 45), true))
-        headerBox.addView(label("Menu điều hướng", 12f, Color.rgb(105, 115, 130), false))
+        headerBox.addView(label("Menu điều hướng", 12f, secondaryTextColor, false))
         header.addView(headerBox, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(TextView(this).apply {
             text = "×"
@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(dp(8), dp(11), dp(8), dp(11))
-                background = rounded(Color.rgb(247, 249, 252), 14)
+                background = rounded(backgroundColor, 14)
                 setTextColor(Color.rgb(95, 105, 120))
                 tabs.addView(this, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
                     if (tabButtons.isNotEmpty()) leftMargin = dp(6)
@@ -102,8 +102,8 @@ class MainActivity : AppCompatActivity() {
         fun setActiveTab(index: Int) {
             tabButtons.forEachIndexed { i, tab ->
                 if (i == index) {
-                    tab.background = rounded(Color.rgb(24, 119, 242), 14)
-                    tab.setTextColor(Color.WHITE)
+                    tab.background = rounded(primaryColor, 14)
+                    tab.setTextColor(surfaceColor)
                 } else {
                     tab.background = rounded(Color.rgb(247, 249, 252), 14)
                     tab.setTextColor(Color.rgb(95, 105, 120))
@@ -188,8 +188,8 @@ class MainActivity : AppCompatActivity() {
             text = icon
             textSize = 20f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(24, 119, 242))
-            background = rounded(Color.WHITE, 12)
+            setTextColor(primaryColor)
+            background = rounded(surfaceColor, 12)
         }, LinearLayout.LayoutParams(dp(44), dp(44)))
 
         val box = LinearLayout(this).apply {
@@ -390,7 +390,7 @@ class MainActivity : AppCompatActivity() {
         val enabled = isAccessibilityEnabled()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(247, 249, 252))
+            setBackgroundColor(backgroundColor)
         }
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         val content = LinearLayout(this).apply {
@@ -426,7 +426,7 @@ class MainActivity : AppCompatActivity() {
         val status = card()
         status.addView(label(
             if (enabled) "Sẵn sàng tiếp tục xem" else "Bật Accessibility để bắt đầu",
-            20f, Color.rgb(25, 35, 50), true
+            20f, textColor, true
         ))
         status.addView(label(
             if (enabled) "FBResume sẽ tự động ghi nhớ vị trí video Facebook để bạn quay lại xem tiếp."
@@ -535,9 +535,32 @@ class MainActivity : AppCompatActivity() {
         setContentView(scroll)
     }
 
-    private fun card()=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(15),dp(16),dp(15));background=rounded(Color.WHITE,18);elevation=dp(2).toFloat()}
-    private fun statCard(value:String,caption:String)=card().apply{addView(label(value,22f,Color.rgb(24,119,242),true));addView(label(caption,12f,Color.rgb(105,115,130),false));layoutParams=LinearLayout.LayoutParams(0,-2,1f)}
-    private fun label(text:String,size:Float,color:Int,bold:Boolean)=TextView(this).apply{this.text=text;textSize=size;setTextColor(color);typeface=Typeface.create("sans",if(bold)Typeface.BOLD else Typeface.NORMAL);setPadding(0,dp(2),0,dp(2))}
+    private val primaryColor = Color.rgb(24, 119, 242)
+    private val textColor = Color.rgb(25, 35, 50)
+    private val secondaryTextColor = Color.rgb(105, 115, 130)
+    private val surfaceColor = Color.WHITE
+    private val backgroundColor = Color.rgb(247, 249, 252)
+
+    private fun card() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(15), dp(16), dp(15))
+        background = rounded(surfaceColor, 18)
+        elevation = dp(2).toFloat()
+    }
+
+    private fun statCard(value: String, caption: String) = card().apply {
+        addView(label(value, 22f, primaryColor, true))
+        addView(label(caption, 12f, secondaryTextColor, false))
+        layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+    }
+
+    private fun label(text: String, size: Float, color: Int, bold: Boolean) = TextView(this).apply {
+        this.text = text
+        textSize = size
+        setTextColor(color)
+        typeface = Typeface.create("sans", if (bold) Typeface.BOLD else Typeface.NORMAL)
+        setPadding(0, dp(2), 0, dp(2))
+    }
     private fun rounded(color:Int,radius:Int)=GradientDrawable().apply{setColor(color);cornerRadius=dp(radius).toFloat()}
     private fun pill(color:Int)=GradientDrawable().apply{setColor(color);shape=GradientDrawable.OVAL}
     private fun marginBottom(value:Int=16)=LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(value)}
