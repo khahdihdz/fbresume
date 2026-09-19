@@ -11,7 +11,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -69,7 +68,8 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), dp(2), dp(8), dp(8))
         }
-        val tabContent = FrameLayout(this).apply {
+        val tabContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(8), 0, dp(8), dp(4))
         }
         val tabButtons = mutableListOf<TextView>()
@@ -152,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         otherTab.setOnClickListener { setActiveTab(2) }
 
         container.addView(tabs)
-        container.addView(tabContent, LinearLayout.LayoutParams(-1, dp(250)))
+        container.addView(tabContent, LinearLayout.LayoutParams(-1, dp(160)))
 
         dialogBuilder.setView(container)
         alert = dialogBuilder.create()
@@ -165,7 +165,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addNavSection(
-        parent: FrameLayout,
+        parent: LinearLayout,
         title: String,
         subtitle: String,
         icon: String,
@@ -201,7 +201,7 @@ class MainActivity : AppCompatActivity() {
             setTextColor(Color.rgb(150, 158, 170))
         }, LinearLayout.LayoutParams(dp(30), dp(44)))
 
-        parent.addView(row, FrameLayout.LayoutParams(-1, dp(68)).apply {
+        parent.addView(row, LinearLayout.LayoutParams(-1, dp(68)).apply {
             bottomMargin = dp(8)
         })
     }
@@ -230,7 +230,16 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                if (tag.isBlank() || apkUrl.isNullOrBlank()) return@Thread
+                if (tag.isBlank() || apkUrl.isNullOrBlank()) {
+                    if (manual) runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Kiểm tra cập nhật")
+                            .setMessage("Chưa có bản phát hành chính thức chứa APK FBResume để kiểm tra.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                    return@Thread
+                }
 
                 val latest = tag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
                 val versionName = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
