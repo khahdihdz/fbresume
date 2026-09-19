@@ -20,12 +20,18 @@ object FacebookDetector {
     private val genericText = setOf(
         "Facebook", "Like", "Comment", "Share", "Follow", "More", "Options",
         "Play", "Pause", "Mute", "Unmute", "Close", "Back", "Next",
-        "Reels", "Shorts", "Video", "Videos"
+        "Reels", "Shorts", "Video", "Videos", "Watch", "Save", "Copy link",
+        "Send", "Reply", "Translate", "See more", "See less", "Hide",
+        "Report", "Notifications", "Menu"
     )
     private val technicalTextRegex = Regex(
         "(?i)(component(spec)?|attachmentcomponent|recycler(view)?|viewholder|com\\.|androidx?\\.|fbshorts|stick(er)?|resource|contentdescription|accessibility|menuitem|testid)"
     )
     private val titleHintRegex = Regex("(?i)(title|video|caption|description|reel|short)")
+    private val captionHintRegex = Regex(
+        "(?i)(caption|description|post|content|message|status|text|reel|video)"
+    )
+    private val urlOnlyRegex = Regex("(?i)^(https?://|www\\.)\\S+$")
 
     fun isFacebook(packageName: CharSequence?): Boolean {
         val name = packageName?.toString() ?: return false
@@ -74,19 +80,20 @@ object FacebookDetector {
 
         val seekNode = findSeekNode(root)
         val title = findVideoTitle(root, seekNode)
-        return VideoState(current, duration, title, stableKey(title), seekNode)
+        return VideoState(current, duration, title, stableKey(title, duration), seekNode)
     }
 
     /**
-     * Finds the most likely human-readable video title from the Accessibility tree.
-     * Combines visible text/contentDescription, proximity to the seek bar, semantic
-     * hints and filters for timestamps, controls and technical component names.
+     * Extracts the Facebook post/caption associated with the current video.
+     * Accessibility trees vary between Facebook versions, so candidates are
+     * scored by semantic hints, position relative to the video and text shape.
+     * If no caption/post is exposed, it falls back to the best video title.
      */
     fun findVideoTitle(root: AccessibilityNodeInfo?, seekNode: AccessibilityNodeInfo? = null): String {
         if (root == null) return "Facebook video"
 
         val anchor = Rect().also { seekNode?.getBoundsInScreen(it) }
-        val candidates = mutableListOf<Pair<String, Int>>()
+        val candidates = mutableListOf<Candidate>()
 
         fun addCandidate(node: AccessibilityNodeInfo) {
             val values = listOfNotNull(
@@ -105,20 +112,41 @@ object FacebookDetector {
 
                 var score = 0
                 if (anchor.width() > 0) {
-                    val horizontalDistance = kotlin.math.abs((rect.centerX() - anchor.centerX()).toLong()).coerceAtMost(1000L).toInt()
-                    val verticalDistance = kotlin.math.abs((rect.centerY() - anchor.centerY()).toLong()).coerceAtMost(1600L).toInt()
-                    score += 1000 - horizontalDistance / 4 - verticalDistance / 6
-                    if (rect.bottom <= anchor.top) score += 220
-                    if (rect.bottom in (anchor.top - 500)..anchor.top) score += 140
+                    val horizontalDistance =
+                        kotlin.math.abs((rect.centerX() - anchor.centerX()).toLong())
+                            .coerceAtMost(1400L).toInt()
+                    val verticalDistance =
+                        kotlin.math.abs((rect.centerY() - anchor.centerY()).toLong())
+                            .coerceAtMost(2200L).toInt()
+                    score += 900 - horizontalDistance / 5 - verticalDistance / 8
+
+                    // Facebook commonly exposes the post caption above the video.
+                    if (rect.bottom <= anchor.top) score += 300
+                    if (rect.bottom in (anchor.top - 700)..anchor.top) score += 180
+                    if (rect.top >= anchor.bottom) score -= 180
                 }
-                if (titleHintRegex.containsMatchIn(cls) || titleHintRegex.containsMatchIn(desc)) score += 120
-                if (node.isVisibleToUser) score += 40
-                if (node.isClickable) score -= 15
-                if (node.isFocusable) score -= 10
-                score += text.length.coerceAtMost(80) / 4
+
+                if (captionHintRegex.containsMatchIn(cls) || captionHintRegex.containsMatchIn(desc)) {
+                    score += 180
+                }
+                if (titleHintRegex.containsMatchIn(cls) || titleHintRegex.containsMatchIn(desc)) {
+                    score += 80
+                }
+                if (node.isVisibleToUser) score += 50
+                if (node.isClickable) score -= 35
+                if (node.isFocusable) score -= 15
+
+                // Prefer real sentences/captions over one-word UI labels.
+                if (text.any { it.isWhitespace() }) score += 55
+                if (text.any { it in ".!?。！？" }) score += 35
+                if (text.any { it == '#' || it == '@' }) score += 25
+                score += text.length.coerceAtMost(600) / 8
+
                 if (text.count { it == '_' } >= 2) score -= 100
-                if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 25
-                candidates += text to score
+                if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 40
+                if (urlOnlyRegex.matches(text)) score -= 160
+
+                candidates += Candidate(text, score, rect, node)
             }
         }
 
@@ -128,16 +156,64 @@ object FacebookDetector {
         }
         walk(root)
 
-        return candidates.maxByOrNull { it.second }?.first ?: "Facebook video"
+        val best = candidates.maxByOrNull { it.score } ?: return "Facebook video"
+        val merged = mergeCaptionParts(candidates, best, anchor)
+        return merged.ifBlank { best.text }
+    }
+
+    private data class Candidate(
+        val text: String,
+        val score: Int,
+        val rect: Rect,
+        val node: AccessibilityNodeInfo
+    )
+
+    /**
+     * Some Facebook builds expose a caption as several adjacent TextViews.
+     * Merge nearby caption fragments only when they occupy the same text region.
+     */
+    private fun mergeCaptionParts(
+        candidates: List<Candidate>,
+        best: Candidate,
+        anchor: Rect
+    ): String {
+        if (best.text.length >= 120) return best.text
+
+        val parts = candidates
+            .asSequence()
+            .filter { it !== best }
+            .filter { it.score >= best.score - 220 }
+            .filter { it.text.length >= 3 }
+            .filter { !genericText.contains(it.text) }
+            .filter {
+                if (anchor.width() <= 0) true
+                else it.rect.bottom <= anchor.top + 40
+            }
+            .filter {
+                kotlin.math.abs(it.rect.centerX() - best.rect.centerX()) <= 700
+            }
+            .filter {
+                kotlin.math.abs(it.rect.centerY() - best.rect.centerY()) <= 180
+            }
+            .sortedBy { it.rect.left }
+            .map { it.text }
+            .distinct()
+            .toList()
+
+        if (parts.isEmpty()) return best.text
+
+        val all = (parts + best.text).distinct()
+        val merged = all.joinToString(" ").replace(Regex("\\s+"), " ").trim()
+        return if (merged.length > best.text.length && merged.length <= 1200) merged else best.text
     }
 
     private fun isTitleCandidate(text: String): Boolean {
-        if (text.length !in 5..180) return false
+        if (text.length !in 5..1200) return false
         if (genericText.contains(text)) return false
         if (timeRegex.containsMatchIn(text)) return false
         if (text.contains("$") || text.contains("{") || text.contains("}")) return false
         if (technicalTextRegex.containsMatchIn(text)) return false
-        if (text.count { it.isWhitespace() } > 45) return false
+        if (text.count { it.isWhitespace() } > 220) return false
         return true
     }
 
@@ -163,7 +239,7 @@ object FacebookDetector {
             for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
         }
 
-        root?.let(::walk)
+        walk(root)
         return best
     }
 
@@ -178,8 +254,10 @@ object FacebookDetector {
         return node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, args)
     }
 
-    private fun stableKey(title: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(title.trim().lowercase().toByteArray())
+    private fun stableKey(title: String, durationMs: Long): String {
+        val normalized = title.trim().lowercase().replace(Regex("\\s+"), " ")
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest((normalized + "|" + durationMs).toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }.take(24)
     }
 }
