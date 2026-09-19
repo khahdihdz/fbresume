@@ -75,7 +75,7 @@ class MainActivity : AppCompatActivity() {
         val tabScroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
-            addView(tabContent, ScrollView.LayoutParams(-1, -2))
+            addView(tabContent, LinearLayout.LayoutParams(-1, -2))
         }
         val tabButtons = mutableListOf<TextView>()
 
