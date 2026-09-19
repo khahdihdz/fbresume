@@ -413,7 +413,7 @@ class MainActivity : AppCompatActivity() {
         recentHeader.addView(label("Video gần đây", 18f, Color.rgb(25, 35, 50), true),
             LinearLayout.LayoutParams(0, -2, 1f))
         recentHeader.addView(label(
-            if (items.isEmpty()) "" else "\${items.size} video",
+            if (items.isEmpty()) "" else "${items.size} video",
             12f, Color.rgb(120, 130, 145), false
         ))
         content.addView(recentHeader, marginBottom(8))
@@ -432,14 +432,14 @@ class MainActivity : AppCompatActivity() {
                 rowCard.setPadding(dp(14), dp(12), dp(14), dp(12))
                 rowCard.addView(label(it.title.take(80), 15f, Color.rgb(35, 45, 60), true))
                 rowCard.addView(label(
-                    "Đã xem \${formatTime(it.positionMs)} / \${formatTime(it.durationMs)}",
+                    "Đã xem ${formatTime(it.positionMs)} / ${formatTime(it.durationMs)}",
                     12f, Color.rgb(100, 110, 125), false
                 ))
                 content.addView(rowCard, marginBottom(8))
             }
             if (items.size > 5) {
                 content.addView(Button(this).apply {
-                    text = "Xem tất cả \${items.size} video đã lưu"
+                    text = "Xem tất cả ${items.size} video đã lưu"
                     isAllCaps = false; textSize = 13f
                     setTextColor(Color.rgb(24, 119, 242))
                     background = rounded(Color.rgb(235, 242, 255), 14)
