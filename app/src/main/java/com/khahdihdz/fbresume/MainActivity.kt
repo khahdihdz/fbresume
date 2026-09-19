@@ -113,7 +113,7 @@ class MainActivity : AppCompatActivity() {
                         render()
                     }
                     addNavSection(tabContent, "Video đã lưu", "Mở danh sách tiến độ đã ghi nhớ", "▶") {
-                        dialog.create().dismiss()
+                        alert.dismiss()
                         Toast.makeText(this, "Danh sách video đã lưu nằm ở màn hình chính.", Toast.LENGTH_SHORT).show()
                     }
                 }
