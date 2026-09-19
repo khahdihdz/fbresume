@@ -346,72 +346,115 @@ class MainActivity : AppCompatActivity() {
     private fun render() {
         val items = store.all()
         val enabled = isAccessibilityEnabled()
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(247,249,252)) }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(247, 249, 252))
+        }
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20),dp(18),dp(20),dp(28)) }
-
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(ImageView(this).apply { setImageResource(R.drawable.ic_fbresume) }, LinearLayout.LayoutParams(dp(54),dp(54)))
-        val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14),0,0,0) }
-        titleBox.addView(label("FBResume",26f,Color.rgb(20,30,45),true))
-        titleBox.addView(label("Ghi nhớ video Facebook",14f,Color.rgb(105,115,130),false))
-        header.addView(titleBox, LinearLayout.LayoutParams(0,-2,1f)); header.addView(TextView(this).apply { text="☰"; textSize=28f; gravity=Gravity.CENTER; setTextColor(Color.rgb(35,45,60)); setOnClickListener { showNavMenu() } }, LinearLayout.LayoutParams(dp(48),dp(54))); content.addView(header)
-
-        val hero = card()
-        hero.addView(label(if (enabled) "Bạn đã sẵn sàng tiếp tục xem" else "Xem video, FBResume nhớ vị trí", 21f, Color.rgb(25, 35, 50), true))
-        hero.addView(label(
-            if (enabled) "FBResume đã sẵn sàng. Khi bạn quay lại video Facebook, tiến độ đã xem sẽ được ghi nhớ."
-            else "Bật Accessibility một lần để FBResume tự động theo dõi và lưu tiến độ xem.",
-            14f, Color.rgb(95, 105, 120), false
-        ))
-        content.addView(hero, marginBottom(14))
-        content.addView(ImageView(this).apply {
-            setImageResource(R.drawable.fbresume_hero)
-            adjustViewBounds=true
-            scaleType=ImageView.ScaleType.CENTER_INSIDE
-            setPadding(0,dp(2),0,dp(8))
-        }, LinearLayout.LayoutParams(-1,dp(145)))
-
-        val status = card()
-        val row = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
-        row.addView(View(this).apply { background=pill(if(enabled) Color.rgb(46,190,105) else Color.rgb(245,166,35)) }, LinearLayout.LayoutParams(dp(12),dp(12)))
-        val st = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(12),0,0,0) }
-        st.addView(label("Accessibility",15f,Color.rgb(35,45,60),true))
-        st.addView(label(if(enabled) "Đang hoạt động • Sẵn sàng ghi nhớ" else "Chưa bật • Cần cấp quyền",13f,Color.rgb(100,110,125),false))
-        row.addView(st,LinearLayout.LayoutParams(0,-2,1f)); status.addView(row); content.addView(status,marginBottom())
-
-        content.addView(Button(this).apply {
-            text=if(enabled) "Mở cài đặt Accessibility" else "Bật Accessibility ngay"; isAllCaps=false; textSize=15f; setTextColor(Color.WHITE)
-            background=rounded(Color.rgb(24,119,242),16); setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        },LinearLayout.LayoutParams(-1,dp(52)).apply{bottomMargin=dp(18)})
-
-        val stats=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        stats.addView(statCard(items.size.toString(),"Video đã lưu"))
-        stats.addView(statCard(if(items.isEmpty()) "—" else formatTime(items.first().positionMs),"Vị trí gần nhất"),LinearLayout.LayoutParams(0,-2,1f).apply{leftMargin=dp(8)})
-        content.addView(stats,marginBottom())
-        content.addView(label("Video gần đây",18f,Color.rgb(25,35,50),true),marginBottom())
-
-        if(items.isEmpty()){
-            val empty=card()
-            empty.addView(label("Chưa có video nào được lưu",16f,Color.rgb(50,60,75),true))
-            empty.addView(label("Mở Facebook và xem video. FBResume sẽ tự lưu tiến độ để bạn dễ dàng tiếp tục sau.",14f,Color.rgb(105,115,130),false))
-            content.addView(empty, marginBottom(14))
-        } else items.take(10).forEach {
-            val rowCard=card()
-            rowCard.addView(label(it.title.take(70),15f,Color.rgb(35,45,60),true))
-            rowCard.addView(label(formatTime(it.positionMs)+" / "+formatTime(it.durationMs),13f,Color.rgb(100,110,125),false))
-            content.addView(rowCard,marginBottom(8))
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(24))
         }
 
-        val donate = card().apply { setOnClickListener { openUrl(donateUrl) }; addView(label("❤️ Donate / Ủng hộ",17f,Color.rgb(35,45,60),true)); addView(label("Ủng hộ tác giả tại khahdihdz.github.io",13f,Color.rgb(100,110,125),false)); addView(label(donateUrl,13f,Color.rgb(24,119,242),false)) }
-        content.addView(donate, marginBottom(10))
-        val help = card()
-        help.addView(label("💡 Mẹo sử dụng", 16f, Color.rgb(35,45,60), true))
-        help.addView(label("• Giữ Accessibility luôn bật để tự động ghi nhớ.\n• Dữ liệu tiến độ được lưu trên thiết bị.\n• Dùng menu ☰ để mở các chức năng nhanh.", 13f, Color.rgb(100,110,125), false))
-        content.addView(help, marginBottom(12))
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(ImageView(this).apply { setImageResource(R.drawable.ic_fbresume) },
+            LinearLayout.LayoutParams(dp(48), dp(48)))
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, dp(8), 0)
+        }
+        titleBox.addView(label("FBResume", 23f, Color.rgb(20, 30, 45), true))
+        titleBox.addView(label(
+            if (enabled) "Đang hoạt động" else "Chưa bật Accessibility",
+            12f,
+            if (enabled) Color.rgb(35, 165, 90) else Color.rgb(210, 135, 25),
+            true
+        ))
+        header.addView(titleBox, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(TextView(this).apply {
+            text = "☰"; textSize = 27f; gravity = Gravity.CENTER
+            setTextColor(Color.rgb(35, 45, 60))
+            setOnClickListener { showNavMenu() }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        content.addView(header, marginBottom(14))
 
-        content.addView(label("FBResume • tự động lưu tiến độ xem",12f,Color.rgb(145,152,165),false).apply{gravity=Gravity.CENTER;setPadding(0,dp(20),0,0)})
-        root.addView(content); setContentView(scroll)
+        val status = card()
+        status.addView(label(
+            if (enabled) "Sẵn sàng tiếp tục xem" else "Bật Accessibility để bắt đầu",
+            20f, Color.rgb(25, 35, 50), true
+        ))
+        status.addView(label(
+            if (enabled) "FBResume sẽ tự động ghi nhớ vị trí video Facebook để bạn quay lại xem tiếp."
+            else "Cấp quyền Accessibility một lần để ứng dụng tự động theo dõi và lưu tiến độ video.",
+            13f, Color.rgb(95, 105, 120), false
+        ))
+        status.addView(Button(this).apply {
+            text = if (enabled) "Mở cài đặt Accessibility" else "Bật Accessibility ngay"
+            isAllCaps = false; textSize = 14f; setTextColor(Color.WHITE)
+            background = rounded(Color.rgb(24, 119, 242), 14)
+            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
+        content.addView(status, marginBottom(12))
+
+        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        stats.addView(statCard(items.size.toString(), "Video đã lưu"))
+        stats.addView(
+            statCard(if (items.isEmpty()) "—" else formatTime(items.first().positionMs), "Vị trí gần nhất"),
+            LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) }
+        )
+        content.addView(stats, marginBottom(16))
+
+        val recentHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        }
+        recentHeader.addView(label("Video gần đây", 18f, Color.rgb(25, 35, 50), true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        recentHeader.addView(label(
+            if (items.isEmpty()) "" else "\${items.size} video",
+            12f, Color.rgb(120, 130, 145), false
+        ))
+        content.addView(recentHeader, marginBottom(8))
+
+        if (items.isEmpty()) {
+            val empty = card()
+            empty.addView(label("Chưa có video nào", 16f, Color.rgb(50, 60, 75), true))
+            empty.addView(label(
+                "Mở Facebook và xem video. FBResume sẽ tự động lưu vị trí để bạn tiếp tục sau.",
+                13f, Color.rgb(105, 115, 130), false
+            ))
+            content.addView(empty, marginBottom(14))
+        } else {
+            items.take(5).forEach {
+                val rowCard = card()
+                rowCard.setPadding(dp(14), dp(12), dp(14), dp(12))
+                rowCard.addView(label(it.title.take(80), 15f, Color.rgb(35, 45, 60), true))
+                rowCard.addView(label(
+                    "Đã xem \${formatTime(it.positionMs)} / \${formatTime(it.durationMs)}",
+                    12f, Color.rgb(100, 110, 125), false
+                ))
+                content.addView(rowCard, marginBottom(8))
+            }
+            if (items.size > 5) {
+                content.addView(Button(this).apply {
+                    text = "Xem tất cả \${items.size} video đã lưu"
+                    isAllCaps = false; textSize = 13f
+                    setTextColor(Color.rgb(24, 119, 242))
+                    background = rounded(Color.rgb(235, 242, 255), 14)
+                    setOnClickListener { showNavMenu() }
+                }, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(10) })
+            }
+        }
+
+        val tip = label("Dữ liệu tiến độ được lưu trên thiết bị • ☰ để mở chức năng",
+            11f, Color.rgb(145, 152, 165), false)
+        tip.gravity = Gravity.CENTER
+        tip.setPadding(0, dp(12), 0, dp(4))
+        content.addView(tip)
+        root.addView(content)
+        setContentView(scroll)
     }
 
     private fun card()=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(15),dp(16),dp(15));background=rounded(Color.WHITE,18);elevation=dp(2).toFloat()}
