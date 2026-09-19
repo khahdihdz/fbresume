@@ -15,14 +15,33 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.app.AlertDialog
+import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.graphics.drawable.GradientDrawable
 
 class MainActivity : AppCompatActivity() {
     private lateinit var store: ResumeStore
 
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); store = ResumeStore(this); render() }
+    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); store = ResumeStore(this); render(); checkForUpdate() }
     override fun onResume() { super.onResume(); if (::store.isInitialized) render() }
+
+    private fun checkForUpdate() {
+        Thread {
+            try {
+                val url = java.net.URL("https://api.github.com/repos/khahdihdz/fbresume/releases/latest")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.setRequestProperty("Accept", "application/vnd.github+json")
+                connection.connectTimeout = 4000; connection.readTimeout = 4000
+                val json = connection.inputStream.bufferedReader().use { it.readText() }
+                val tag = Regex(""tag_name"\\s*:\\s*"([^"]+)"").find(json)?.groupValues?.get(1) ?: return@Thread
+                val apk = Regex(""browser_download_url"\\s*:\\s*"([^"]*FBResume\\.apk)"").find(json)?.groupValues?.get(1) ?: return@Thread
+                val latest = tag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
+                val current = BuildConfig.VERSION_NAME.split(".").mapNotNull { it.toIntOrNull() }
+                if (latest > current) runOnUiThread { AlertDialog.Builder(this).setTitle("Có phiên bản mới").setMessage("FBResume $tag đã có sẵn. Bạn có muốn mở trang tải bản cập nhật?").setNegativeButton("Để sau", null).setPositiveButton("Cập nhật") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apk))) }.show() }
+            } catch (_: Exception) { }
+        }.start()
+    }
 
     private fun render() {
         val items = store.all()
