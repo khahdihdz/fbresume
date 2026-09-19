@@ -218,52 +218,87 @@ class MainActivity : AppCompatActivity() {
                 val url = java.net.URL("https://api.github.com/repos/khahdihdz/fbresume/releases/latest")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Accept", "application/vnd.github+json")
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
+                connection.setRequestProperty("User-Agent", "FBResume")
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
                 val json = connection.inputStream.bufferedReader().use { it.readText() }
                 connection.disconnect()
 
                 val root = org.json.JSONObject(json)
-                val tag = root.optString("tag_name", "")
+                val tag = root.optString("tag_name", "").trim()
                 val assets = root.optJSONArray("assets")
                 var apkUrl: String? = null
+
                 if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.optJSONObject(i) ?: continue
-                        if (asset.optString("name") == "FBResume.apk") {
-                            apkUrl = asset.optString("browser_download_url", null)
-                            break
+                    val preferredNames = listOf(
+                        "FBResume-release-signed.apk",
+                        "FBResume.apk",
+                        "app-release.apk",
+                        "FBResume-debug-signed.apk"
+                    )
+                    for (preferred in preferredNames) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.optJSONObject(i) ?: continue
+                            if (asset.optString("name") == preferred) {
+                                apkUrl = asset.optString("browser_download_url", "").takeIf { it.isNotBlank() }
+                                if (apkUrl != null) break
+                            }
+                        }
+                        if (apkUrl != null) break
+                    }
+
+                    if (apkUrl == null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.optJSONObject(i) ?: continue
+                            if (asset.optString("name", "").endsWith(".apk", ignoreCase = true)) {
+                                apkUrl = asset.optString("browser_download_url", "").takeIf { it.isNotBlank() }
+                                if (apkUrl != null) break
+                            }
                         }
                     }
                 }
+
                 if (tag.isBlank() || apkUrl.isNullOrBlank()) {
                     if (manual) runOnUiThread {
                         AlertDialog.Builder(this)
                             .setTitle("Kiểm tra cập nhật")
-                            .setMessage("Chưa có bản phát hành chính thức chứa APK FBResume để kiểm tra.")
-                            .setPositiveButton("OK", null)
+                            .setMessage("Release mới chưa có APK để tải xuống.")
+                            .setPositiveButton("Mở Releases") { _, _ ->
+                                openUrl("https://github.com/khahdihdz/fbresume/releases/latest")
+                            }
+                            .setNegativeButton("Đóng", null)
                             .show()
                     }
                     return@Thread
                 }
 
-                val latest = tag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
-                val versionName = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
-                val current = versionName.split(".").mapNotNull { it.toIntOrNull() }
-                val newer = compareVersions(latest, current) > 0
+                val latest = parseVersion(tag)
+                val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                val currentVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    packageInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION")
+                    packageInfo.versionCode.toLong()
+                }
+                val currentName = packageInfo.versionName ?: "0.0.0"
+
+                val newer = latest.versionCode?.let { it > currentVersionCode }
+                    ?: (compareVersions(latest.parts, parseVersion(currentName).parts) > 0)
 
                 runOnUiThread {
                     if (newer) {
                         AlertDialog.Builder(this)
                             .setTitle("Có phiên bản mới • $tag")
-                            .setMessage("Đã phát hiện bản cập nhật. FBResume sẽ tải APK rồi mở trình cài đặt Android.")
+                            .setMessage("Phiên bản hiện tại: $currentName\nPhiên bản mới: $tag\n\nBạn có muốn tải và cài đặt không?")
                             .setNegativeButton("Để sau", null)
-                            .setPositiveButton("Cập nhật") { _, _ -> downloadAndInstallUpdate(apkUrl!!, tag) }
+                            .setPositiveButton("Cập nhật") { _, _ ->
+                                downloadAndInstallUpdate(apkUrl!!, tag)
+                            }
                             .show()
                     } else if (manual) {
                         AlertDialog.Builder(this)
                             .setTitle("FBResume")
-                            .setMessage("Bạn đang dùng phiên bản mới nhất ($versionName).")
+                            .setMessage("Bạn đang dùng phiên bản mới nhất ($currentName).")
                             .setPositiveButton("OK", null)
                             .show()
                     }
@@ -278,6 +313,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private data class ParsedVersion(val parts: List<Int>, val versionCode: Long?)
+
+    private fun parseVersion(raw: String): ParsedVersion {
+        val cleaned = raw.trim().removePrefix("v").removePrefix("V")
+        val parts = cleaned.split(".").mapNotNull { it.toIntOrNull() }
+        val code = if (parts.size >= 3 && parts[0] == 1 && parts[1] == 0) parts[2].toLong() else null
+        return ParsedVersion(parts, code)
     }
 
     private fun downloadAndInstallUpdate(apkUrl: String, tag: String) {
