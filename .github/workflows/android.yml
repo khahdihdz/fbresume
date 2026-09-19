@@ -1,4 +1,4 @@
-name: Android Build
+name: Android Build & Signed APK
 
 on:
   push:
@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,37 +41,64 @@ jobs:
           PY
           grep -E 'versionCode|versionName' app/build.gradle.kts
 
-      - name: Prepare stable signing key
+      - name: Prepare signing keystore
         env:
           KEYSTORE_B64: ${{ secrets.FBRESUME_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "::error::Missing FBRESUME_KEYSTORE_BASE64 repository secret. Configure the stable signing secrets before building distributable APKs."
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::Missing FBRESUME_KEYSTORE_BASE64 repository secret."
             exit 1
           fi
-          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/fbresume-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/fbresume-release.jks"
           test -s "$RUNNER_TEMP/fbresume-release.jks"
 
-      - name: Build debug APK with stable signing
+      - name: Build signed debug APK
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
           KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           gradle assembleDebug --stacktrace             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE"             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS"             -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
 
-      - name: Rename APK to FBResume.apk
+      - name: Build signed release APK
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/FBResume.apk
-          test -s app/build/outputs/apk/debug/FBResume.apk
-          ls -lh app/build/outputs/apk/debug/FBResume.apk
+          set -euo pipefail
+          gradle assembleRelease --stacktrace             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE"             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS"             -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
 
-      - name: Upload build artifact
+      - name: Verify APK signatures
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          if [ -z "${APKSIGNER:-}" ]; then
+            echo "::error::apksigner was not found."
+            exit 1
+          fi
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Prepare signed APK files
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/FBResume-debug-signed.apk
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/FBResume-release-signed.apk
+          ls -lh app/build/outputs/apk/debug/FBResume-debug-signed.apk app/build/outputs/apk/release/FBResume-release-signed.apk
+
+      - name: Upload signed APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: FBResume-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/FBResume.apk
+          name: FBResume-signed-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/debug/FBResume-debug-signed.apk
+            app/build/outputs/apk/release/FBResume-release-signed.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -78,8 +106,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           TAG="v1.0.${{ github.run_number }}"
-          gh release create "$TAG" \
-            app/build/outputs/apk/debug/FBResume.apk \
-            --title "FBResume $TAG" \
-            --generate-notes
+          gh release create "$TAG"             app/build/outputs/apk/release/FBResume-release-signed.apk             app/build/outputs/apk/debug/FBResume-debug-signed.apk             --title "FBResume $TAG"             --generate-notes
+
+      - name: Cleanup signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/fbresume-release.jks"
