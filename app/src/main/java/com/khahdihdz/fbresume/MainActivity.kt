@@ -320,14 +320,14 @@ class MainActivity : AppCompatActivity() {
 
                 if (tag.isBlank() || apkUrl.isNullOrBlank()) {
                     if (manual) runOnUiThread {
-                        AlertDialog.Builder(this)
-                            .setTitle("Kiểm tra cập nhật")
-                            .setMessage("Release mới chưa có APK để tải xuống.")
-                            .setPositiveButton("Mở Releases") { _, _ ->
-                                openUrl("https://github.com/khahdihdz/fbresume/releases/latest")
-                            }
-                            .setNegativeButton("Đóng", null)
-                            .show()
+                        showStyledDialog(
+                            title = "Kiểm tra cập nhật",
+                            message = "Release mới chưa có APK để tải xuống.",
+                            positiveText = "Mở Releases",
+                            negativeText = "Đóng"
+                        ) {
+                            openUrl("https://github.com/khahdihdz/fbresume/releases/latest")
+                        }
                     }
                     return@Thread
                 }
@@ -354,20 +354,18 @@ class MainActivity : AppCompatActivity() {
                         ).show()
                         downloadAndInstallUpdate(apkUrl!!, tag)
                     } else if (manual) {
-                        AlertDialog.Builder(this)
-                            .setTitle("FBResume")
-                            .setMessage("Bạn đang dùng phiên bản mới nhất ($currentName).")
-                            .setPositiveButton("OK", null)
-                            .show()
+                        showStyledDialog(
+                            title = "FBResume",
+                            message = "Bạn đang dùng phiên bản mới nhất ($currentName)"
+                        )
                     }
                 }
             } catch (_: Exception) {
                 if (manual) runOnUiThread {
-                    AlertDialog.Builder(this)
-                        .setTitle("FBResume")
-                        .setMessage("Không thể kiểm tra cập nhật lúc này.")
-                        .setPositiveButton("OK", null)
-                        .show()
+                    showStyledDialog(
+                        title = "FBResume",
+                        message = "Không thể kiểm tra cập nhật lúc này."
+                    )
                 }
             }
         }.start()
@@ -384,14 +382,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun downloadAndInstallUpdate(apkUrl: String, tag: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            AlertDialog.Builder(this)
-                .setTitle("Cho phép tự động cập nhật")
-                .setMessage("Android cần cho phép FBResume cài APK từ nguồn này. Bật quyền một lần để các bản cập nhật sau có thể tự tải và mở trình cài đặt.")
-                .setNegativeButton("Hủy", null)
-                .setPositiveButton("Mở cài đặt") { _, _ ->
-                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-                }
-                .show()
+            showStyledDialog(
+                title = "Cho phép tự động cập nhật",
+                message = "Android cần cho phép FBResume cài APK từ nguồn này. Bật quyền một lần để các bản cập nhật sau có thể tự tải và mở trình cài đặt.",
+                positiveText = "Mở cài đặt",
+                negativeText = "Hủy"
+            ) {
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            }
             return
         }
 
