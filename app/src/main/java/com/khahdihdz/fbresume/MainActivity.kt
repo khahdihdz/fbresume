@@ -47,16 +47,58 @@ class MainActivity : AppCompatActivity() {
                 val url = java.net.URL("https://api.github.com/repos/khahdihdz/fbresume/releases/latest")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Accept", "application/vnd.github+json")
-                connection.connectTimeout = 4000; connection.readTimeout = 4000
+                connection.connectTimeout = 4000
+                connection.readTimeout = 4000
                 val json = connection.inputStream.bufferedReader().use { it.readText() }
-                val tag = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(json)?.groupValues?.get(1) ?: return@Thread
-                val apk = Regex(""browser_download_url"\\s*:\\s*"([^"]*FBResume\\.apk)"").find(json)?.groupValues?.get(1) ?: return@Thread
+
+                val tag = Regex("""\"tag_name\"\s*:\s*\"([^\"]+)\"""").find(json)?.groupValues?.get(1)
+                    ?: return@Thread
+                val apk = Regex("""\"browser_download_url\"\s*:\s*\"([^\"]*FBResume\.apk)\"""").find(json)?.groupValues?.get(1)
+                    ?: return@Thread
+
                 val latest = tag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
-                val current = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0".split(".").mapNotNull { it.toIntOrNull() }
-                val newer = latest.zip(current).firstOrNull { it.first != it.second }?.let { it.first > it.second } ?: (latest.size > current.size)
-                if (newer) runOnUiThread { AlertDialog.Builder(this).setTitle("Có phiên bản mới").setMessage("FBResume $tag đã có sẵn. Bạn có muốn mở trang tải bản cập nhật?").setNegativeButton("Để sau", null).setPositiveButton("Cập nhật") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apk))) }.show() }
-            } catch (_: Exception) { }
+                val versionName = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
+                val current = versionName.split(".").mapNotNull { it.toIntOrNull() }
+                val newer = compareVersions(latest, current) > 0
+
+                if (newer) {
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Có phiên bản mới")
+                            .setMessage("FBResume $tag đã có sẵn. Bạn có muốn mở trang tải bản cập nhật?")
+                            .setNegativeButton("Để sau", null)
+                            .setPositiveButton("Cập nhật") { _, _ -> openUrl(apk) }
+                            .show()
+                    }
+                } else if (manual) {
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("FBResume")
+                            .setMessage("Bạn đang dùng phiên bản mới nhất ($versionName).")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                }
+            } catch (_: Exception) {
+                if (manual) runOnUiThread {
+                    AlertDialog.Builder(this)
+                        .setTitle("FBResume")
+                        .setMessage("Không thể kiểm tra cập nhật lúc này.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
         }.start()
+    }
+
+    private fun compareVersions(a: List<Int>, b: List<Int>): Int {
+        val size = maxOf(a.size, b.size)
+        for (i in 0 until size) {
+            val av = a.getOrElse(i) { 0 }
+            val bv = b.getOrElse(i) { 0 }
+            if (av != bv) return av.compareTo(bv)
+        }
+        return 0
     }
 
     private fun render() {
