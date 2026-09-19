@@ -116,7 +116,7 @@ object FacebookDetector {
                 if (node.isClickable) score -= 15
                 if (node.isFocusable) score -= 10
                 score += text.length.coerceAtMost(80) / 4
-                if (text.count { it == "_" } >= 2) score -= 100
+                if (text.count { it == '_' } >= 2) score -= 100
                 if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 25
                 candidates += text to score
             }
