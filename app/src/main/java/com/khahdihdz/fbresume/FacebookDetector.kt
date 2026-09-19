@@ -114,16 +114,32 @@ object FacebookDetector {
                 if (anchor.width() > 0) {
                     val horizontalDistance =
                         kotlin.math.abs((rect.centerX() - anchor.centerX()).toLong())
-                            .coerceAtMost(1400L).toInt()
-                    val verticalDistance =
-                        kotlin.math.abs((rect.centerY() - anchor.centerY()).toLong())
-                            .coerceAtMost(2200L).toInt()
-                    score += 900 - horizontalDistance / 5 - verticalDistance / 8
+                            .coerceAtMost(1600L).toInt()
 
-                    // Facebook commonly exposes the post caption above the video.
-                    if (rect.bottom <= anchor.top) score += 300
-                    if (rect.bottom in (anchor.top - 700)..anchor.top) score += 180
-                    if (rect.top >= anchor.bottom) score -= 180
+                    // Facebook normally exposes the reel caption immediately
+                    // above the video. Text inside/below the video is usually
+                    // controls, overlays, comments or unrelated UI.
+                    val isAboveVideo = rect.bottom <= anchor.top
+                    val isInsideVideo = Rect.intersects(rect, anchor)
+                    val gap = (anchor.top - rect.bottom).coerceAtLeast(0)
+
+                    if (isInsideVideo) {
+                        score -= 900
+                    } else if (isAboveVideo) {
+                        score += 1200
+                        score += (700 - gap.coerceAtMost(700)) / 2
+                    } else {
+                        score -= 650
+                    }
+
+                    score -= horizontalDistance / 7
+
+                    val horizontalOverlap = maxOf(
+                        0,
+                        minOf(rect.right, anchor.right) - maxOf(rect.left, anchor.left)
+                    )
+                    if (horizontalOverlap > 0) score += 180
+                    if (rect.width() >= (anchor.width() * 0.45f).toInt()) score += 100
                 }
 
                 if (captionHintRegex.containsMatchIn(cls) || captionHintRegex.containsMatchIn(desc)) {
@@ -136,15 +152,26 @@ object FacebookDetector {
                 if (node.isClickable) score -= 35
                 if (node.isFocusable) score -= 15
 
-                // Prefer real sentences/captions over one-word UI labels.
-                if (text.any { it.isWhitespace() }) score += 55
-                if (text.any { it in ".!?。！？" }) score += 35
-                if (text.any { it == '#' || it == '@' }) score += 25
-                score += text.length.coerceAtMost(600) / 8
+                // Prefer real post captions over usernames, counters and
+                // accessibility labels.
+                if (text.any { it.isWhitespace() }) score += 90
+                if (text.any { it in ".!?。！？" }) score += 55
+                if (text.any { it == '#' || it == '@' }) score += 35
+                if (text.length in 20..300) score += 90
+                score += text.length.coerceAtMost(600) / 6
 
-                if (text.count { it == '_' } >= 2) score -= 100
-                if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 40
-                if (urlOnlyRegex.matches(text)) score -= 160
+                val lower = text.lowercase()
+                if (lower.contains("phần ") || lower.contains("part ") ||
+                    lower.contains("tập ") || lower.contains("episode ")) score += 100
+                if (lower.split(Regex("\\s+")).count { it.length >= 2 } >= 5) score += 80
+
+                // Common Facebook metadata is not the reel caption.
+                if (Regex("(?i)^(\\d+[smhdwy]|\\d+\\s*(giờ|phút|ngày|tuần|tháng|năm))$").matches(text)) score -= 500
+                if (Regex("(?i)^(\\d+[.,]?\\d*\\s*(likes?|comments?|shares?|lượt thích|bình luận|lượt chia sẻ))$").matches(text)) score -= 500
+                if (Regex("(?i)^(follow|following|đang theo dõi|theo dõi|facebook user)$").matches(text)) score -= 500
+                if (text.count { it == '_' } >= 2) score -= 180
+                if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 100
+                if (urlOnlyRegex.matches(text)) score -= 300
 
                 candidates += Candidate(text, score, rect, node)
             }
@@ -187,13 +214,16 @@ object FacebookDetector {
             .filter { !genericText.contains(it.text) }
             .filter {
                 if (anchor.width() <= 0) true
-                else it.rect.bottom <= anchor.top + 40
+                else it.rect.bottom <= anchor.top + 10
             }
             .filter {
-                kotlin.math.abs(it.rect.centerX() - best.rect.centerX()) <= 700
+                kotlin.math.abs(it.rect.centerX() - best.rect.centerX()) <= 650
             }
             .filter {
-                kotlin.math.abs(it.rect.centerY() - best.rect.centerY()) <= 180
+                kotlin.math.abs(it.rect.centerY() - best.rect.centerY()) <= 220
+            }
+            .filter {
+                it.text.any { ch -> ch.isWhitespace() } || it.text.length >= 12
             }
             .sortedBy { it.rect.left }
             .map { it.text }
