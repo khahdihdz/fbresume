@@ -158,6 +158,23 @@ jobs:
             --title "FBResume $TAG" \
             --generate-notes
 
+      - name: Keep only 5 newest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t OLD_RELEASES < <(
+            gh release list --limit 100 --json tagName,publishedAt \
+              --jq 'sort_by(.publishedAt) | reverse | .[5:][] | .tagName'
+          )
+
+          for tag in "${OLD_RELEASES[@]}"; do
+            [ -z "$tag" ] && continue
+            echo "Deleting old release: $tag"
+            gh release delete "$tag" --yes
+          done
+
       - name: Cleanup signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/fbresume-release.jks"
