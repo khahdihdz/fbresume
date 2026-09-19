@@ -142,11 +142,10 @@ class MainActivity : AppCompatActivity() {
                         openUrl(donateUrl)
                     }
                     addNavSection(tabContent, "Giới thiệu", "Thông tin về FBResume và quyền riêng tư", "ⓘ") {
-                        AlertDialog.Builder(this)
-                            .setTitle("Giới thiệu FBResume")
-                            .setMessage("FBResume giúp ghi nhớ vị trí video Facebook. Ứng dụng dùng Accessibility để theo dõi tiến độ và lưu dữ liệu trên thiết bị.")
-                            .setPositiveButton("Đóng", null)
-                            .show()
+                        showStyledDialog(
+                            title = "Giới thiệu FBResume",
+                            message = "FBResume giúp ghi nhớ vị trí video Facebook. Ứng dụng dùng Accessibility để theo dõi tiến độ và lưu dữ liệu trên thiết bị."
+                        )
                     }
                 }
             }
@@ -210,6 +209,67 @@ class MainActivity : AppCompatActivity() {
         parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
             bottomMargin = dp(8)
         })
+    }
+
+    private fun showStyledDialog(
+        title: String,
+        message: String,
+        positiveText: String = "Đóng",
+        negativeText: String? = null,
+        onPositive: (() -> Unit)? = null
+    ) {
+        lateinit var dialog: AlertDialog
+        val dialogContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(22), dp(20), dp(10))
+            background = rounded(surfaceColor, 22)
+        }
+
+        dialogContent.addView(label(title, 21f, textColor, true))
+        dialogContent.addView(label(message, 15f, secondaryTextColor, false).apply {
+            setPadding(0, dp(12), 0, dp(8))
+        })
+
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+
+        if (negativeText != null) {
+            actions.addView(TextView(this).apply {
+                text = negativeText
+                textSize = 14f
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(secondaryTextColor)
+                background = rounded(backgroundColor, 12)
+                setPadding(dp(16), 0, dp(16), 0)
+                setOnClickListener { dialog.dismiss() }
+            }, LinearLayout.LayoutParams(-2, dp(44)).apply {
+                rightMargin = dp(8)
+            })
+        }
+
+        actions.addView(TextView(this).apply {
+            text = positiveText
+            textSize = 14f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            background = rounded(primaryColor, 12)
+            setPadding(dp(18), 0, dp(18), 0)
+            setOnClickListener {
+                dialog.dismiss()
+                onPositive?.invoke()
+            }
+        }, LinearLayout.LayoutParams(-2, dp(44)))
+
+        dialogContent.addView(actions)
+        dialog = AlertDialog.Builder(this).setView(dialogContent).create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        }
+        dialog.show()
     }
 
     private fun checkForUpdate(manual: Boolean = false) {
@@ -497,16 +557,16 @@ class MainActivity : AppCompatActivity() {
                     isClickable = true
                     setPadding(dp(12), 0, dp(12), 0)
                     setOnClickListener {
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle("Xóa video?")
-                            .setMessage("Xóa \"${item.title.take(80)}\" khỏi danh sách video gần đây?\n\nDữ liệu tiến độ của video này cũng sẽ bị xóa.")
-                            .setNegativeButton("Hủy", null)
-                            .setPositiveButton("Xóa") { _, _ ->
-                                store.remove(item.key)
-                                render()
-                                Toast.makeText(this@MainActivity, "Đã xóa video", Toast.LENGTH_SHORT).show()
-                            }
-                            .show()
+                        showStyledDialog(
+                            title = "Xóa video?",
+                            message = "Xóa \"${item.title.take(80)}\" khỏi danh sách video gần đây?\n\nDữ liệu tiến độ của video này cũng sẽ bị xóa.",
+                            positiveText = "Xóa",
+                            negativeText = "Hủy"
+                        ) {
+                            store.remove(item.key)
+                            render()
+                            Toast.makeText(this@MainActivity, "Đã xóa video", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
                 infoRow.addView(deleteButton, LinearLayout.LayoutParams(dp(58), dp(40)).apply {
