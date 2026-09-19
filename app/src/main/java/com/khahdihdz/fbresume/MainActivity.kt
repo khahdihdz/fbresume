@@ -30,15 +30,59 @@ class MainActivity : AppCompatActivity() {
     private fun openUrl(url: String) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 
     private fun showNavMenu() {
-        val labels = arrayOf("Trang chủ", "Cài đặt Accessibility", "❤️ Donate / Ủng hộ", "Kiểm tra cập nhật")
-        AlertDialog.Builder(this).setTitle("FBResume").setItems(labels) { _, which ->
-            when (which) {
-                0 -> render()
-                1 -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                2 -> openUrl(donateUrl)
-                3 -> checkForUpdate(true)
-            }
-        }.show()
+        val dialog = AlertDialog.Builder(this)
+        val menu = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        menu.addView(label("FBResume", 21f, Color.rgb(20, 30, 45), true).apply {
+            setPadding(dp(16), dp(10), dp(16), dp(14))
+        })
+        addMenuItem(menu, "⌂", "Trang chủ", "Tổng quan và video đã lưu") { render() }
+        addMenuItem(menu, "✓", if (isAccessibilityEnabled()) "Accessibility đang bật" else "Bật Accessibility",
+            "Cấp quyền để FBResume tự động ghi nhớ vị trí video") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        addMenuItem(menu, "↻", "Kiểm tra cập nhật", "Kiểm tra phiên bản FBResume mới nhất") {
+            checkForUpdate(true)
+        }
+        addMenuItem(menu, "♥", "Donate / Ủng hộ", "Ủng hộ tác giả tại khahdihdz.github.io") {
+            openUrl(donateUrl)
+        }
+        addMenuItem(menu, "ⓘ", "Giới thiệu", "Tìm hiểu cách FBResume hoạt động") {
+            AlertDialog.Builder(this)
+                .setTitle("Giới thiệu FBResume")
+                .setMessage("FBResume giúp ghi nhớ vị trí video Facebook. Ứng dụng dùng Accessibility để theo dõi tiến độ và lưu dữ liệu trên thiết bị.")
+                .setPositiveButton("Đóng", null)
+                .show()
+        }
+        dialog.setView(menu)
+        dialog.setNegativeButton("Đóng", null)
+        dialog.show()
+    }
+
+    private fun addMenuItem(parent: LinearLayout, icon: String, title: String, subtitle: String, action: () -> Unit) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+            background = rounded(Color.rgb(248, 250, 253), 14)
+            setOnClickListener { action() }
+        }
+        row.addView(TextView(this).apply {
+            text = icon
+            textSize = 21f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(24, 119, 242))
+        }, LinearLayout.LayoutParams(dp(42), dp(48)))
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), 0, dp(4), 0)
+        }
+        box.addView(label(title, 15f, Color.rgb(30, 40, 55), true))
+        box.addView(label(subtitle, 12f, Color.rgb(105, 115, 130), false))
+        row.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
+        parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
     }
 
     private fun checkForUpdate(manual: Boolean = false) {
@@ -115,7 +159,20 @@ class MainActivity : AppCompatActivity() {
         titleBox.addView(label("Ghi nhớ video Facebook",14f,Color.rgb(105,115,130),false))
         header.addView(titleBox, LinearLayout.LayoutParams(0,-2,1f)); header.addView(TextView(this).apply { text="☰"; textSize=28f; gravity=Gravity.CENTER; setTextColor(Color.rgb(35,45,60)); setOnClickListener { showNavMenu() } }, LinearLayout.LayoutParams(dp(48),dp(54))); content.addView(header)
 
-        content.addView(ImageView(this).apply { setImageResource(R.drawable.fbresume_hero); adjustViewBounds=true; scaleType=ImageView.ScaleType.CENTER_INSIDE; setPadding(0,dp(10),0,dp(4)) }, LinearLayout.LayoutParams(-1,dp(155)))
+        val hero = card()
+        hero.addView(label(if (enabled) "Bạn đã sẵn sàng tiếp tục xem" else "Xem video, FBResume nhớ vị trí", 21f, Color.rgb(25, 35, 50), true))
+        hero.addView(label(
+            if (enabled) "FBResume đã sẵn sàng. Khi bạn quay lại video Facebook, tiến độ đã xem sẽ được ghi nhớ."
+            else "Bật Accessibility một lần để FBResume tự động theo dõi và lưu tiến độ xem.",
+            14f, Color.rgb(95, 105, 120), false
+        ))
+        content.addView(hero, marginBottom(14))
+        content.addView(ImageView(this).apply {
+            setImageResource(R.drawable.fbresume_hero)
+            adjustViewBounds=true
+            scaleType=ImageView.ScaleType.CENTER_INSIDE
+            setPadding(0,dp(2),0,dp(8))
+        }, LinearLayout.LayoutParams(-1,dp(145)))
 
         val status = card()
         val row = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER_VERTICAL }
@@ -138,9 +195,9 @@ class MainActivity : AppCompatActivity() {
 
         if(items.isEmpty()){
             val empty=card()
-            empty.addView(label("Chưa có video được lưu",16f,Color.rgb(50,60,75),true))
-            empty.addView(label("Mở Facebook, bật Accessibility và xem video vài giây. FBResume sẽ tự ghi nhớ vị trí.",14f,Color.rgb(105,115,130),false))
-            content.addView(empty)
+            empty.addView(label("Chưa có video nào được lưu",16f,Color.rgb(50,60,75),true))
+            empty.addView(label("Mở Facebook và xem video. FBResume sẽ tự lưu tiến độ để bạn dễ dàng tiếp tục sau.",14f,Color.rgb(105,115,130),false))
+            content.addView(empty, marginBottom(14))
         } else items.take(10).forEach {
             val rowCard=card()
             rowCard.addView(label(it.title.take(70),15f,Color.rgb(35,45,60),true))
@@ -150,6 +207,11 @@ class MainActivity : AppCompatActivity() {
 
         val donate = card().apply { setOnClickListener { openUrl(donateUrl) }; addView(label("❤️ Donate / Ủng hộ",17f,Color.rgb(35,45,60),true)); addView(label("Ủng hộ tác giả tại khahdihdz.github.io",13f,Color.rgb(100,110,125),false)); addView(label(donateUrl,13f,Color.rgb(24,119,242),false)) }
         content.addView(donate, marginBottom(10))
+        val help = card()
+        help.addView(label("💡 Mẹo sử dụng", 16f, Color.rgb(35,45,60), true))
+        help.addView(label("• Giữ Accessibility luôn bật để tự động ghi nhớ.\n• Dữ liệu tiến độ được lưu trên thiết bị.\n• Dùng menu ☰ để mở các chức năng nhanh.", 13f, Color.rgb(100,110,125), false))
+        content.addView(help, marginBottom(12))
+
         content.addView(label("FBResume • tự động lưu tiến độ xem",12f,Color.rgb(145,152,165),false).apply{gravity=Gravity.CENTER;setPadding(0,dp(20),0,0)})
         root.addView(content); setContentView(scroll)
     }
