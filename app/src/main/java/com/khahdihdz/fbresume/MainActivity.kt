@@ -287,14 +287,12 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     if (newer) {
-                        AlertDialog.Builder(this)
-                            .setTitle("Có phiên bản mới • $tag")
-                            .setMessage("Phiên bản hiện tại: $currentName\nPhiên bản mới: $tag\n\nBạn có muốn tải và cài đặt không?")
-                            .setNegativeButton("Để sau", null)
-                            .setPositiveButton("Cập nhật") { _, _ ->
-                                downloadAndInstallUpdate(apkUrl!!, tag)
-                            }
-                            .show()
+                        Toast.makeText(
+                            this,
+                            "Có bản mới $tag — đang tải cập nhật…",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        downloadAndInstallUpdate(apkUrl!!, tag)
                     } else if (manual) {
                         AlertDialog.Builder(this)
                             .setTitle("FBResume")
@@ -327,8 +325,8 @@ class MainActivity : AppCompatActivity() {
     private fun downloadAndInstallUpdate(apkUrl: String, tag: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             AlertDialog.Builder(this)
-                .setTitle("Cho phép cập nhật")
-                .setMessage("Android cần cho phép FBResume cài APK từ nguồn này. Hãy bật quyền, sau đó chọn Cập nhật lại.")
+                .setTitle("Cho phép tự động cập nhật")
+                .setMessage("Android cần cho phép FBResume cài APK từ nguồn này. Bật quyền một lần để các bản cập nhật sau có thể tự tải và mở trình cài đặt.")
                 .setNegativeButton("Hủy", null)
                 .setPositiveButton("Mở cài đặt") { _, _ ->
                     startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
