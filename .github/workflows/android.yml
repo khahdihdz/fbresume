@@ -29,16 +29,17 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
-      - name: Verify APK
+      - name: Rename APK to FBResume.apk
         run: |
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/FBResume.apk
+          test -s app/build/outputs/apk/debug/FBResume.apk
+          ls -lh app/build/outputs/apk/debug/FBResume.apk
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FBResume-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: FBResume-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/FBResume.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -48,6 +49,6 @@ jobs:
         run: |
           TAG="v1.0.${{ github.run_number }}"
           gh release create "$TAG" \
-            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/debug/FBResume.apk \
             --title "FBResume $TAG" \
             --generate-notes
