@@ -13,7 +13,8 @@ FBResume sử dụng **Android AccessibilityService** để quan sát các thôn
 - 💾 Lưu tiến độ xem video **cục bộ trên thiết bị**.
 - ▶️ Tự động thử **resume/seek** khi mở lại video.
 - ♿ Sử dụng **AccessibilityService** để đọc thông tin hiển thị trên màn hình.
-- 🧹 Lọc các chuỗi kỹ thuật/accessibility label để hạn chế lưu nhầm tên component làm tiêu đề video.
+- 🧠 Tự động nhận diện tiêu đề video từ Accessibility tree, ưu tiên text/contentDescription gần khu vực phát video và thanh tiến trình.
+- 🧹 Lọc timestamp, nút điều khiển và chuỗi kỹ thuật/accessibility label để hạn chế lưu nhầm tên component làm tiêu đề video.
 - 🆔 Tạo khóa ổn định từ tiêu đề để nhận diện video đã lưu.
 - 🛠️ Có helper **Termux** để kiểm tra môi trường, liệt kê và sao lưu dữ liệu.
 - 🔐 Không yêu cầu root.
@@ -85,7 +86,8 @@ Một số trường hợp:
 - Facebook chỉ expose timestamp nhưng không expose seek bar.
 - Seek bar là custom view và không hỗ trợ `ACTION_SET_PROGRESS`.
 - Nhiều video có cùng tiêu đề nên khóa nhận diện có thể trùng.
-- Accessibility có thể trả về các label kỹ thuật thay vì tiêu đề video thực tế.
+- Accessibility có thể trả về các label kỹ thuật thay vì tiêu đề video thực tế; detector sẽ lọc và chấm điểm nhiều ứng viên nhưng không thể đảm bảo chính xác với mọi phiên bản Facebook.
+- Nếu tiêu đề xuất hiện muộn sau khi video tải, detector sẽ quét lại định kỳ và cập nhật bản ghi theo tiêu đề mới.
 - Hành vi có thể khác nhau giữa Facebook và Facebook Lite.
 
 Trong các trường hợp này, FBResume có thể **lưu được timestamp nhưng không thể tự động seek**, hoặc nhận diện video chưa chính xác.
