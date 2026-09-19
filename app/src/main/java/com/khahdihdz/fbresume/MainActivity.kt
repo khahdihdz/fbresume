@@ -72,6 +72,11 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(8), 0, dp(8), dp(4))
         }
+        val tabScroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            addView(tabContent, ScrollView.LayoutParams(-1, -2))
+        }
         val tabButtons = mutableListOf<TextView>()
 
         fun addTab(title: String): TextView {
@@ -152,7 +157,7 @@ class MainActivity : AppCompatActivity() {
         otherTab.setOnClickListener { setActiveTab(2) }
 
         container.addView(tabs)
-        container.addView(tabContent, LinearLayout.LayoutParams(-1, dp(160)))
+        container.addView(tabScroll, LinearLayout.LayoutParams(-1, dp(190)))
 
         dialogBuilder.setView(container)
         alert = dialogBuilder.create()
@@ -201,7 +206,8 @@ class MainActivity : AppCompatActivity() {
             setTextColor(Color.rgb(150, 158, 170))
         }, LinearLayout.LayoutParams(dp(30), dp(44)))
 
-        parent.addView(row, LinearLayout.LayoutParams(-1, dp(68)).apply {
+        row.minimumHeight = dp(72)
+        parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
             bottomMargin = dp(8)
         })
     }
