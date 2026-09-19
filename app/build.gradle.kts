@@ -24,9 +24,29 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        create("ciRelease") {
+            val keystorePath = project.findProperty("FBRESUME_KEYSTORE_FILE") as String?
+            val keystorePassword = project.findProperty("FBRESUME_KEYSTORE_PASSWORD") as String?
+            val keyAliasValue = project.findProperty("FBRESUME_KEY_ALIAS") as String?
+            val keyPasswordValue = project.findProperty("FBRESUME_KEY_PASSWORD") as String?
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("ciRelease")
+        }
+        debug {
+            // CI signs the distributable debug APK with the same persistent key.
+            signingConfig = signingConfigs.getByName("ciRelease")
         }
     }
 }
