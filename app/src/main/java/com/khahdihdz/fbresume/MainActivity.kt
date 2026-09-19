@@ -22,11 +22,26 @@ import android.graphics.drawable.GradientDrawable
 
 class MainActivity : AppCompatActivity() {
     private lateinit var store: ResumeStore
+    private val donateUrl = "https://khahdihdz.github.io"
 
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); store = ResumeStore(this); render(); checkForUpdate() }
     override fun onResume() { super.onResume(); if (::store.isInitialized) render() }
 
-    private fun checkForUpdate() {
+    private fun openUrl(url: String) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+
+    private fun showNavMenu() {
+        val labels = arrayOf("Trang chủ", "Cài đặt Accessibility", "❤️ Donate / Ủng hộ", "Kiểm tra cập nhật")
+        AlertDialog.Builder(this).setTitle("FBResume").setItems(labels) { _, which ->
+            when (which) {
+                0 -> render()
+                1 -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                2 -> openUrl(donateUrl)
+                3 -> checkForUpdate(true)
+            }
+        }.show()
+    }
+
+    private fun checkForUpdate(manual: Boolean = false) {
         Thread {
             try {
                 val url = java.net.URL("https://api.github.com/repos/khahdihdz/fbresume/releases/latest")
@@ -38,7 +53,8 @@ class MainActivity : AppCompatActivity() {
                 val apk = Regex(""browser_download_url"\\s*:\\s*"([^"]*FBResume\\.apk)"").find(json)?.groupValues?.get(1) ?: return@Thread
                 val latest = tag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
                 val current = BuildConfig.VERSION_NAME.split(".").mapNotNull { it.toIntOrNull() }
-                if (latest > current) runOnUiThread { AlertDialog.Builder(this).setTitle("Có phiên bản mới").setMessage("FBResume $tag đã có sẵn. Bạn có muốn mở trang tải bản cập nhật?").setNegativeButton("Để sau", null).setPositiveButton("Cập nhật") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apk))) }.show() }
+                val newer = latest.zip(current).firstOrNull { it.first != it.second }?.let { it.first > it.second } ?: (latest.size > current.size)
+                if (newer) runOnUiThread { AlertDialog.Builder(this).setTitle("Có phiên bản mới").setMessage("FBResume $tag đã có sẵn. Bạn có muốn mở trang tải bản cập nhật?").setNegativeButton("Để sau", null).setPositiveButton("Cập nhật") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apk))) }.show() }
             } catch (_: Exception) { }
         }.start()
     }
@@ -55,7 +71,7 @@ class MainActivity : AppCompatActivity() {
         val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14),0,0,0) }
         titleBox.addView(label("FBResume",26f,Color.rgb(20,30,45),true))
         titleBox.addView(label("Ghi nhớ video Facebook",14f,Color.rgb(105,115,130),false))
-        header.addView(titleBox, LinearLayout.LayoutParams(0,-2,1f)); content.addView(header)
+        header.addView(titleBox, LinearLayout.LayoutParams(0,-2,1f)); header.addView(TextView(this).apply { text="☰"; textSize=28f; gravity=Gravity.CENTER; setTextColor(Color.rgb(35,45,60)); setOnClickListener { showNavMenu() } }, LinearLayout.LayoutParams(dp(48),dp(54))); content.addView(header)
 
         content.addView(ImageView(this).apply { setImageResource(R.drawable.fbresume_hero); adjustViewBounds=true; scaleType=ImageView.ScaleType.CENTER_INSIDE; setPadding(0,dp(10),0,dp(4)) }, LinearLayout.LayoutParams(-1,dp(155)))
 
@@ -90,6 +106,8 @@ class MainActivity : AppCompatActivity() {
             content.addView(rowCard,marginBottom(8))
         }
 
+        val donate = card().apply { setOnClickListener { openUrl(donateUrl) }; addView(label("❤️ Donate / Ủng hộ",17f,Color.rgb(35,45,60),true)); addView(label("Ủng hộ tác giả tại khahdihdz.github.io",13f,Color.rgb(100,110,125),false)); addView(label(donateUrl,13f,Color.rgb(24,119,242),false)) }
+        content.addView(donate, marginBottom(10))
         content.addView(label("FBResume • tự động lưu tiến độ xem",12f,Color.rgb(145,152,165),false).apply{gravity=Gravity.CENTER;setPadding(0,dp(20),0,0)})
         root.addView(content); setContentView(scroll)
     }
