@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -39,58 +40,169 @@ class MainActivity : AppCompatActivity() {
 
     private fun showNavMenu() {
         val dialog = AlertDialog.Builder(this)
-        val menu = LinearLayout(this).apply {
+        val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            background = rounded(Color.WHITE, 24)
         }
-        menu.addView(label("FBResume", 21f, Color.rgb(20, 30, 45), true).apply {
-            setPadding(dp(16), dp(10), dp(16), dp(14))
-        })
-        addMenuItem(menu, "⌂", "Trang chủ", "Tổng quan và video đã lưu") { render() }
-        addMenuItem(menu, "✓", if (isAccessibilityEnabled()) "Accessibility đang bật" else "Bật Accessibility",
-            "Cấp quyền để FBResume tự động ghi nhớ vị trí video") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(8), dp(10))
         }
-        addMenuItem(menu, "↻", "Kiểm tra cập nhật", "Kiểm tra phiên bản FBResume mới nhất") {
-            checkForUpdate(true)
+        val headerBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        headerBox.addView(label("FBResume", 22f, Color.rgb(20, 30, 45), true))
+        headerBox.addView(label("Menu điều hướng", 12f, Color.rgb(105, 115, 130), false))
+        header.addView(headerBox, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(TextView(this).apply {
+            text = "×"
+            textSize = 30f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(80, 90, 105))
+            setOnClickListener { dialog.create().dismiss() }
+        }, LinearLayout.LayoutParams(dp(42), dp(42)))
+        container.addView(header)
+
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8), dp(2), dp(8), dp(8))
         }
-        addMenuItem(menu, "♥", "Donate / Ủng hộ", "Ủng hộ tác giả tại khahdihdz.github.io") {
-            openUrl(donateUrl)
+        val tabContent = FrameLayout(this).apply {
+            setPadding(dp(8), 0, dp(8), dp(4))
         }
-        addMenuItem(menu, "ⓘ", "Giới thiệu", "Tìm hiểu cách FBResume hoạt động") {
-            AlertDialog.Builder(this)
-                .setTitle("Giới thiệu FBResume")
-                .setMessage("FBResume giúp ghi nhớ vị trí video Facebook. Ứng dụng dùng Accessibility để theo dõi tiến độ và lưu dữ liệu trên thiết bị.")
-                .setPositiveButton("Đóng", null)
-                .show()
+        val tabButtons = mutableListOf<TextView>()
+
+        fun addTab(title: String): TextView {
+            return TextView(this).apply {
+                text = title
+                textSize = 13f
+                gravity = Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(8), dp(11), dp(8), dp(11))
+                background = rounded(Color.rgb(247, 249, 252), 14)
+                setTextColor(Color.rgb(95, 105, 120))
+                tabs.addView(this, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                    if (tabButtons.isNotEmpty()) leftMargin = dp(6)
+                })
+                tabButtons.add(this)
+            }
         }
-        dialog.setView(menu)
-        dialog.setNegativeButton("Đóng", null)
-        dialog.show()
+
+        val overviewTab = addTab("Tổng quan")
+        val systemTab = addTab("Hệ thống")
+        val otherTab = addTab("Khác")
+
+        fun setActiveTab(index: Int) {
+            tabButtons.forEachIndexed { i, tab ->
+                if (i == index) {
+                    tab.background = rounded(Color.rgb(24, 119, 242), 14)
+                    tab.setTextColor(Color.WHITE)
+                } else {
+                    tab.background = rounded(Color.rgb(247, 249, 252), 14)
+                    tab.setTextColor(Color.rgb(95, 105, 120))
+                }
+            }
+            tabContent.removeAllViews()
+
+            when (index) {
+                0 -> {
+                    addNavSection(tabContent, "Trang chủ", "Tổng quan và các video đã lưu", "⌂") {
+                        dialog.create().dismiss()
+                        render()
+                    }
+                    addNavSection(tabContent, "Video đã lưu", "Mở danh sách tiến độ đã ghi nhớ", "▶") {
+                        dialog.create().dismiss()
+                        Toast.makeText(this, "Danh sách video đã lưu nằm ở màn hình chính.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                1 -> {
+                    val enabled = isAccessibilityEnabled()
+                    addNavSection(
+                        tabContent,
+                        if (enabled) "Accessibility đang bật" else "Bật Accessibility",
+                        if (enabled) "FBResume đã có quyền theo dõi tiến độ video" else "Cấp quyền để FBResume tự động ghi nhớ vị trí",
+                        if (enabled) "✓" else "!"
+                    ) {
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                    addNavSection(tabContent, "Kiểm tra cập nhật", "Kiểm tra phiên bản FBResume mới nhất", "↻") {
+                        dialog.create().dismiss()
+                        checkForUpdate(true)
+                    }
+                }
+                2 -> {
+                    addNavSection(tabContent, "Donate / Ủng hộ", "Ủng hộ tác giả tại khahdihdz.github.io", "♥") {
+                        openUrl(donateUrl)
+                    }
+                    addNavSection(tabContent, "Giới thiệu", "Thông tin về FBResume và quyền riêng tư", "ⓘ") {
+                        AlertDialog.Builder(this)
+                            .setTitle("Giới thiệu FBResume")
+                            .setMessage("FBResume giúp ghi nhớ vị trí video Facebook. Ứng dụng dùng Accessibility để theo dõi tiến độ và lưu dữ liệu trên thiết bị.")
+                            .setPositiveButton("Đóng", null)
+                            .show()
+                    }
+                }
+            }
+        }
+
+        overviewTab.setOnClickListener { setActiveTab(0) }
+        systemTab.setOnClickListener { setActiveTab(1) }
+        otherTab.setOnClickListener { setActiveTab(2) }
+
+        container.addView(tabs)
+        container.addView(tabContent, LinearLayout.LayoutParams(-1, dp(250)))
+
+        dialog.setView(container)
+        val alert = dialog.create()
+        alert.setOnShowListener {
+            alert.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            setActiveTab(0)
+        }
+        alert.setOnDismissListener { }
+        alert.show()
     }
 
-    private fun addMenuItem(parent: LinearLayout, icon: String, title: String, subtitle: String, action: () -> Unit) {
+    private fun addNavSection(
+        parent: FrameLayout,
+        title: String,
+        subtitle: String,
+        icon: String,
+        action: () -> Unit
+    ) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(9), dp(10), dp(9))
-            background = rounded(Color.rgb(248, 250, 253), 14)
+            setPadding(dp(12), dp(10), dp(10), dp(10))
+            background = rounded(Color.rgb(248, 250, 253), 16)
+            isClickable = true
             setOnClickListener { action() }
         }
         row.addView(TextView(this).apply {
             text = icon
-            textSize = 21f
+            textSize = 20f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(24, 119, 242))
-        }, LinearLayout.LayoutParams(dp(42), dp(48)))
+            background = rounded(Color.WHITE, 12)
+        }, LinearLayout.LayoutParams(dp(44), dp(44)))
+
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), 0, dp(4), 0)
+            setPadding(dp(12), 0, dp(6), 0)
         }
         box.addView(label(title, 15f, Color.rgb(30, 40, 55), true))
         box.addView(label(subtitle, 12f, Color.rgb(105, 115, 130), false))
         row.addView(box, LinearLayout.LayoutParams(0, -2, 1f))
-        parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
+        row.addView(TextView(this).apply {
+            text = "›"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(150, 158, 170))
+        }, LinearLayout.LayoutParams(dp(30), dp(44)))
+
+        parent.addView(row, FrameLayout.LayoutParams(-1, dp(68)).apply {
+            bottomMargin = dp(8)
+        })
     }
 
     private fun checkForUpdate(manual: Boolean = false) {
