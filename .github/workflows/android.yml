@@ -40,8 +40,25 @@ jobs:
           PY
           grep -E 'versionCode|versionName' app/build.gradle.kts
 
-      - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+      - name: Prepare stable signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.FBRESUME_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Missing FBRESUME_KEYSTORE_BASE64 repository secret. Configure the stable signing secrets before building distributable APKs."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/fbresume-release.jks"
+          test -s "$RUNNER_TEMP/fbresume-release.jks"
+
+      - name: Build debug APK with stable signing
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
+        run: |
+          gradle assembleDebug --stacktrace             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE"             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS"             -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
 
       - name: Rename APK to FBResume.apk
         run: |
