@@ -39,7 +39,8 @@ class MainActivity : AppCompatActivity() {
     private fun openUrl(url: String) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 
     private fun showNavMenu() {
-        val dialog = AlertDialog.Builder(this)
+        val dialogBuilder = AlertDialog.Builder(this)
+        lateinit var alert: AlertDialog
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6), dp(4), dp(6), dp(4))
@@ -60,7 +61,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 30f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(80, 90, 105))
-            setOnClickListener { dialog.create().dismiss() }
+            setOnClickListener { alert.dismiss() }
         }, LinearLayout.LayoutParams(dp(42), dp(42)))
         container.addView(header)
 
@@ -108,7 +109,7 @@ class MainActivity : AppCompatActivity() {
             when (index) {
                 0 -> {
                     addNavSection(tabContent, "Trang chủ", "Tổng quan và các video đã lưu", "⌂") {
-                        dialog.create().dismiss()
+                        alert.dismiss()
                         render()
                     }
                     addNavSection(tabContent, "Video đã lưu", "Mở danh sách tiến độ đã ghi nhớ", "▶") {
@@ -153,8 +154,8 @@ class MainActivity : AppCompatActivity() {
         container.addView(tabs)
         container.addView(tabContent, LinearLayout.LayoutParams(-1, dp(250)))
 
-        dialog.setView(container)
-        val alert = dialog.create()
+        dialogBuilder.setView(container)
+        alert = dialogBuilder.create()
         alert.setOnShowListener {
             alert.window?.setBackgroundDrawableResource(android.R.color.transparent)
             setActiveTab(0)
