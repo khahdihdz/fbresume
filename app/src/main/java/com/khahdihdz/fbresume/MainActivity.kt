@@ -469,14 +469,50 @@ class MainActivity : AppCompatActivity() {
             ))
             content.addView(empty, marginBottom(14))
         } else {
-            items.take(5).forEach {
+            items.take(5).forEach { item ->
                 val rowCard = card()
                 rowCard.setPadding(dp(14), dp(12), dp(14), dp(12))
-                rowCard.addView(label(it.title.take(80), 15f, Color.rgb(35, 45, 60), true))
-                rowCard.addView(label(
-                    "Đã xem ${formatTime(it.positionMs)} / ${formatTime(it.durationMs)}",
+
+                val infoRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                val infoBox = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                infoBox.addView(label(item.title.take(80), 15f, Color.rgb(35, 45, 60), true))
+                infoBox.addView(label(
+                    "Đã xem ${formatTime(item.positionMs)} / ${formatTime(item.durationMs)}",
                     12f, Color.rgb(100, 110, 125), false
                 ))
+                infoRow.addView(infoBox, LinearLayout.LayoutParams(0, -2, 1f))
+
+                val deleteButton = TextView(this).apply {
+                    text = "Xóa"
+                    textSize = 12f
+                    gravity = Gravity.CENTER
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.rgb(210, 55, 65))
+                    background = rounded(Color.rgb(255, 240, 242), 12)
+                    isClickable = true
+                    setPadding(dp(12), 0, dp(12), 0)
+                    setOnClickListener {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Xóa video?")
+                            .setMessage("Xóa \"${item.title.take(80)}\" khỏi danh sách video gần đây?\n\nDữ liệu tiến độ của video này cũng sẽ bị xóa.")
+                            .setNegativeButton("Hủy", null)
+                            .setPositiveButton("Xóa") { _, _ ->
+                                store.remove(item.key)
+                                render()
+                                Toast.makeText(this@MainActivity, "Đã xóa video", Toast.LENGTH_SHORT).show()
+                            }
+                            .show()
+                    }
+                }
+                infoRow.addView(deleteButton, LinearLayout.LayoutParams(dp(58), dp(40)).apply {
+                    leftMargin = dp(8)
+                })
+                rowCard.addView(infoRow)
                 content.addView(rowCard, marginBottom(8))
             }
             if (items.size > 5) {
