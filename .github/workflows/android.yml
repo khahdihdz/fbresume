@@ -26,6 +26,19 @@ jobs:
         with:
           gradle-version: "8.10"
 
+      - name: Set CI version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/build.gradle.kts")
+          s = p.read_text()
+          n = "$"+"{{ github.run_number }}"
+          s = s.replace("versionCode = 2", f"versionCode = {n}")
+          s = s.replace('versionName = "1.0.1"', f'versionName = "1.0.{n}"')
+          p.write_text(s)
+          PY
+          grep -E 'versionCode|versionName' app/build.gradle.kts
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
