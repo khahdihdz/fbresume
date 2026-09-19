@@ -17,7 +17,15 @@ object FacebookDetector {
     const val FACEBOOK_PACKAGE = "com.facebook.katana"
     const val FACEBOOK_LITE_PACKAGE = "com.facebook.lite"
     private val timeRegex = Regex("""(?<!\d)(\d{1,4}):(\d{2})(?::(\d{2}))?(?!\d)""")
-    private val genericText = setOf("Facebook","Like","Comment","Share","Follow","More","Options","Play","Pause","Mute","Unmute","Close","Back","Next")
+    private val genericText = setOf(
+        "Facebook", "Like", "Comment", "Share", "Follow", "More", "Options",
+        "Play", "Pause", "Mute", "Unmute", "Close", "Back", "Next",
+        "Reels", "Shorts", "Video", "Videos"
+    )
+    private val technicalTextRegex = Regex(
+        "(?i)(component(spec)?|attachmentcomponent|recycler(view)?|viewholder|com\\.|androidx?\\.|fbshorts|stick(er)?|resource|contentdescription|accessibility|menuitem|testid)"
+    )
+    private val titleHintRegex = Regex("(?i)(title|video|caption|description|reel|short)")
 
     fun isFacebook(packageName: CharSequence?): Boolean {
         val name = packageName?.toString() ?: return false
@@ -64,13 +72,73 @@ object FacebookDetector {
         val current = times.filter { it < duration }.maxOrNull() ?: return null
         if (duration < 5_000L || current >= duration) return null
 
-        val title = texts
-            .filter { it.length in 5..180 }
-            .filterNot { genericText.contains(it) }
-            .filterNot { timeRegex.containsMatchIn(it) }
-            .maxByOrNull { it.length } ?: "Facebook video"
+        val seekNode = findSeekNode(root)
+        val title = findVideoTitle(root, seekNode)
+        return VideoState(current, duration, title, stableKey(title), seekNode)
+    }
 
-        return VideoState(current, duration, title, stableKey(title), findSeekNode(root))
+    /**
+     * Finds the most likely human-readable video title from the Accessibility tree.
+     * Combines visible text/contentDescription, proximity to the seek bar, semantic
+     * hints and filters for timestamps, controls and technical component names.
+     */
+    fun findVideoTitle(root: AccessibilityNodeInfo?, seekNode: AccessibilityNodeInfo? = null): String {
+        if (root == null) return "Facebook video"
+
+        val anchor = Rect().also { seekNode?.getBoundsInScreen(it) }
+        val candidates = mutableListOf<Pair<String, Int>>()
+
+        fun addCandidate(node: AccessibilityNodeInfo) {
+            val values = listOfNotNull(
+                node.text?.toString()?.trim(),
+                node.contentDescription?.toString()?.trim()
+            ).distinct()
+            if (values.isEmpty()) return
+
+            val rect = Rect().also { node.getBoundsInScreen(it) }
+            val cls = node.className?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+            for (raw in values) {
+                val text = raw.replace(Regex("\\s+"), " ").trim()
+                if (!isTitleCandidate(text)) continue
+
+                var score = 0
+                if (anchor.width() > 0) {
+                    val horizontalDistance = kotlin.math.abs((rect.centerX() - anchor.centerX()).toLong()).coerceAtMost(1000L).toInt()
+                    val verticalDistance = kotlin.math.abs((rect.centerY() - anchor.centerY()).toLong()).coerceAtMost(1600L).toInt()
+                    score += 1000 - horizontalDistance / 4 - verticalDistance / 6
+                    if (rect.bottom <= anchor.top) score += 220
+                    if (rect.bottom in (anchor.top - 500)..anchor.top) score += 140
+                }
+                if (titleHintRegex.containsMatchIn(cls) || titleHintRegex.containsMatchIn(desc)) score += 120
+                if (node.isVisibleToUser) score += 40
+                if (node.isClickable) score -= 15
+                if (node.isFocusable) score -= 10
+                score += text.length.coerceAtMost(80) / 4
+                if (text.count { it == "_" } >= 2) score -= 100
+                if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 25
+                candidates += text to score
+            }
+        }
+
+        fun walk(node: AccessibilityNodeInfo) {
+            addCandidate(node)
+            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
+        }
+        walk(root)
+
+        return candidates.maxByOrNull { it.second }?.first ?: "Facebook video"
+    }
+
+    private fun isTitleCandidate(text: String): Boolean {
+        if (text.length !in 5..180) return false
+        if (genericText.contains(text)) return false
+        if (timeRegex.containsMatchIn(text)) return false
+        if (text.contains("$") || text.contains("{") || text.contains("}")) return false
+        if (technicalTextRegex.containsMatchIn(text)) return false
+        if (text.count { it.isWhitespace() } > 45) return false
+        return true
     }
 
     fun findSeekNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
