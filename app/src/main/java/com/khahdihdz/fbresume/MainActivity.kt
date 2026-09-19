@@ -15,8 +15,16 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import android.app.AlertDialog
 import android.net.Uri
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Build
+import android.os.Environment
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.appcompat.app.AppCompatActivity
 import android.graphics.drawable.GradientDrawable
 
@@ -91,31 +99,40 @@ class MainActivity : AppCompatActivity() {
                 val url = java.net.URL("https://api.github.com/repos/khahdihdz/fbresume/releases/latest")
                 val connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Accept", "application/vnd.github+json")
-                connection.connectTimeout = 4000
-                connection.readTimeout = 4000
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
                 val json = connection.inputStream.bufferedReader().use { it.readText() }
+                connection.disconnect()
 
-                val tag = Regex("""\"tag_name\"\s*:\s*\"([^\"]+)\"""").find(json)?.groupValues?.get(1)
-                    ?: return@Thread
-                val apk = Regex("""\"browser_download_url\"\s*:\s*\"([^\"]*FBResume\.apk)\"""").find(json)?.groupValues?.get(1)
-                    ?: return@Thread
+                val root = org.json.JSONObject(json)
+                val tag = root.optString("tag_name", "")
+                val assets = root.optJSONArray("assets")
+                var apkUrl: String? = null
+                if (assets != null) {
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.optJSONObject(i) ?: continue
+                        if (asset.optString("name") == "FBResume.apk") {
+                            apkUrl = asset.optString("browser_download_url", null)
+                            break
+                        }
+                    }
+                }
+                if (tag.isBlank() || apkUrl.isNullOrBlank()) return@Thread
 
                 val latest = tag.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
                 val versionName = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
                 val current = versionName.split(".").mapNotNull { it.toIntOrNull() }
                 val newer = compareVersions(latest, current) > 0
 
-                if (newer) {
-                    runOnUiThread {
+                runOnUiThread {
+                    if (newer) {
                         AlertDialog.Builder(this)
-                            .setTitle("Có phiên bản mới")
-                            .setMessage("FBResume $tag đã có sẵn. Bạn có muốn mở trang tải bản cập nhật?")
+                            .setTitle("Có phiên bản mới • $tag")
+                            .setMessage("Đã phát hiện bản cập nhật. FBResume sẽ tải APK rồi mở trình cài đặt Android.")
                             .setNegativeButton("Để sau", null)
-                            .setPositiveButton("Cập nhật") { _, _ -> openUrl(apk) }
+                            .setPositiveButton("Cập nhật") { _, _ -> downloadAndInstallUpdate(apkUrl!!, tag) }
                             .show()
-                    }
-                } else if (manual) {
-                    runOnUiThread {
+                    } else if (manual) {
                         AlertDialog.Builder(this)
                             .setTitle("FBResume")
                             .setMessage("Bạn đang dùng phiên bản mới nhất ($versionName).")
@@ -133,6 +150,59 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun downloadAndInstallUpdate(apkUrl: String, tag: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this)
+                .setTitle("Cho phép cập nhật")
+                .setMessage("Android cần cho phép FBResume cài APK từ nguồn này. Hãy bật quyền, sau đó chọn Cập nhật lại.")
+                .setNegativeButton("Hủy", null)
+                .setPositiveButton("Mở cài đặt") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                }
+                .show()
+            return
+        }
+
+        val request = DownloadManager.Request(Uri.parse(apkUrl))
+            .setTitle("FBResume $tag")
+            .setDescription("Đang tải bản cập nhật…")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "FBResume-$tag.apk")
+
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val downloadId = manager.enqueue(request)
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) != downloadId) return
+                try {
+                    val uri = manager.getUriForDownloadedFile(downloadId)
+                    if (uri != null) {
+                        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(installIntent)
+                    } else {
+                        openUrl("https://github.com/khahdihdz/fbresume/releases/latest")
+                    }
+                } finally {
+                    unregisterReceiver(this)
+                }
+            }
+        }
+
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(receiver, filter)
+        }
+        Toast.makeText(this, "Đang tải FBResume $tag…", Toast.LENGTH_SHORT).show()
     }
 
     private fun compareVersions(a: List<Int>, b: List<Int>): Int {
