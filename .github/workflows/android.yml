@@ -41,17 +41,53 @@ jobs:
           PY
           grep -E 'versionCode|versionName' app/build.gradle.kts
 
-      - name: Prepare signing keystore
+      - name: Prepare and validate signing keystore
         env:
           KEYSTORE_B64: ${{ secrets.FBRESUME_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${KEYSTORE_B64:-}" ]; then
-            echo "::error::Missing FBRESUME_KEYSTORE_BASE64 repository secret."
+
+          missing=0
+          for name in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing signing secret: $name"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Check Settings > Secrets and variables > Actions for repository khahdihdz/fbresume."
             exit 1
           fi
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/fbresume-release.jks"
-          test -s "$RUNNER_TEMP/fbresume-release.jks"
+
+          KEYSTORE_FILE="$RUNNER_TEMP/fbresume-release.jks"
+
+          if ! printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"; then
+            echo "::error::FBRESUME_KEYSTORE_BASE64 is not valid Base64."
+            exit 1
+          fi
+
+          if [ ! -s "$KEYSTORE_FILE" ]; then
+            echo "::error::Decoded keystore is empty."
+            exit 1
+          fi
+
+          if ! keytool -list -keystore "$KEYSTORE_FILE" -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::Decoded file is not a valid keystore or FBRESUME_KEYSTORE_PASSWORD is incorrect."
+            exit 1
+          fi
+
+          if ! keytool -list -keystore "$KEYSTORE_FILE" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::FBRESUME_KEY_ALIAS was not found in the keystore."
+            exit 1
+          fi
+
+          echo "Signing configuration validated successfully."
+          echo "Keystore: valid"
+          echo "Alias: configured"
 
       - name: Build signed debug APK
         env:
@@ -61,7 +97,11 @@ jobs:
           KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gradle assembleDebug --stacktrace             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE"             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS"             -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
+          gradle assembleDebug --stacktrace \
+            -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE" \
+            -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
+            -PFBRESUME_KEY_ALIAS="$KEY_ALIAS" \
+            -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
 
       - name: Build signed release APK
         env:
@@ -71,7 +111,11 @@ jobs:
           KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gradle assembleRelease --stacktrace             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE"             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS"             -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
+          gradle assembleRelease --stacktrace \
+            -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE" \
+            -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
+            -PFBRESUME_KEY_ALIAS="$KEY_ALIAS" \
+            -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
 
       - name: Verify APK signatures
         run: |
@@ -108,7 +152,11 @@ jobs:
         run: |
           set -euo pipefail
           TAG="v1.0.${{ github.run_number }}"
-          gh release create "$TAG"             app/build/outputs/apk/release/FBResume-release-signed.apk             app/build/outputs/apk/debug/FBResume-debug-signed.apk             --title "FBResume $TAG"             --generate-notes
+          gh release create "$TAG" \
+            app/build/outputs/apk/release/FBResume-release-signed.apk \
+            app/build/outputs/apk/debug/FBResume-debug-signed.apk \
+            --title "FBResume $TAG" \
+            --generate-notes
 
       - name: Cleanup signing key
         if: always()
