@@ -1,6 +1,7 @@
 package com.khahdihdz.fbresume
 
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import java.security.MessageDigest
@@ -190,25 +191,82 @@ object FacebookDetector {
         return merged.ifBlank { best.text }
     }
 
-    /** Extract the direct Facebook video/reel URL exposed by the accessibility tree. */
+    /**
+     * Extract the direct Facebook video/reel URL exposed by the accessibility tree.
+     * Facebook changes its accessibility hierarchy frequently, so inspect not only
+     * text/contentDescription but also common metadata fields and Bundle extras.
+     */
     fun findVideoUrl(root: AccessibilityNodeInfo?): String {
         if (root == null) return ""
-        val videoUrlRegex = Regex("""(?i)https?://(?:www\\.)?facebook\\.com/(?:reel(?:s)?|watch|videos|share/(?:v|r)|story(?:\\.php)?)[^\\s<>\\\"']+""")
+
+        val facebookUrlRegex = Regex(
+            """(?i)https?://(?:(?:www|m|web)\\.)?facebook\\.com/(?:reel(?:s)?(?:/|\\?|$)|watch(?:/|\\?|$)|videos?(?:/|\\?|$)|share/(?:v|r)(?:/|\\?|$)|story(?:\\.php)?(?:/|\\?|$))[^\\s<>\\\"']*"""
+        )
+        val fbWatchRegex = Regex("""(?i)https?://(?:www\\.)?fb\\.watch/[A-Za-z0-9_-]+/?""")
         var best = ""
-        fun inspectValue(value: CharSequence?) {
-            val text = value?.toString()?.trim().orEmpty()
-            if (text.isBlank()) return
-            val match = videoUrlRegex.find(text)?.value ?: return
-            val cleaned = match.trimEnd('.', ',', ';', ')', ']', '}', '"', '\'')
-            if (cleaned.length > best.length) best = cleaned
+
+        fun consider(value: String) {
+            if (value.isBlank()) return
+            val normalized = value.replace("&amp;", "&")
+            val matches = sequenceOf(
+                facebookUrlRegex.findAll(normalized).map { it.value },
+                fbWatchRegex.findAll(normalized).map { it.value },
+                Regex("""(?i)href\\s*=\\s*[\\\"'](https?://[^\\\"']+)[\\\"']""")
+                    .findAll(normalized).map { it.groupValues[1] }
+            ).flatten()
+
+            for (candidate in matches) {
+                val cleaned = candidate.trimEnd('.', ',', ';', ':', ')', ']', '}', '"', '\\'')
+                if (isUsefulVideoUrl(cleaned) && cleaned.length > best.length) best = cleaned
+            }
         }
+
+        fun inspectExtras(bundle: Bundle?) {
+            if (bundle == null) return
+            for (key in bundle.keySet()) {
+                val value = bundle.get(key)
+                when (value) {
+                    is CharSequence -> consider(value.toString())
+                    is String -> consider(value)
+                    is Bundle -> inspectExtras(value)
+                    is Array<*> -> value.forEach { item -> if (item is CharSequence) consider(item.toString()) }
+                }
+            }
+        }
+
         fun walk(node: AccessibilityNodeInfo) {
-            inspectValue(node.text)
-            inspectValue(node.contentDescription)
+            consider(node.text?.toString().orEmpty())
+            consider(node.contentDescription?.toString().orEmpty())
+            consider(node.viewIdResourceName.orEmpty())
+            inspectExtras(node.extras)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                consider(node.hintText?.toString().orEmpty())
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                consider(node.paneTitle?.toString().orEmpty())
+                consider(node.tooltipText?.toString().orEmpty())
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                consider(node.stateDescription?.toString().orEmpty())
+            }
+
             for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
         }
+
         walk(root)
         return best
+    }
+
+    private fun isUsefulVideoUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        if (lower.contains("facebook.com/watch")) return true
+        if (lower.contains("facebook.com/reel")) return true
+        if (lower.contains("facebook.com/videos/")) return true
+        if (lower.contains("facebook.com/share/v/")) return true
+        if (lower.contains("facebook.com/share/r/")) return true
+        if (lower.contains("facebook.com/story")) return true
+        return lower.contains("fb.watch/")
     }
 
     private data class Candidate(
