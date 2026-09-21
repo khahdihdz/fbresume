@@ -199,7 +199,7 @@ object FacebookDetector {
             val text = value?.toString()?.trim().orEmpty()
             if (text.isBlank()) return
             val match = videoUrlRegex.find(text)?.value ?: return
-            val cleaned = match.trimEnd('.', ',', ';', ')', ']', '}', '\"', '\\'')
+            val cleaned = match.trimEnd('.', ',', ';', ')', ']', '}', '"', '\'')
             if (cleaned.length > best.length) best = cleaned
         }
         fun walk(node: AccessibilityNodeInfo) {
