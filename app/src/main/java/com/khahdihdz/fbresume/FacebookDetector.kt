@@ -10,6 +10,7 @@ data class VideoState(
     val durationMs: Long,
     val title: String,
     val key: String,
+    val url: String,
     val seekNode: AccessibilityNodeInfo?
 )
 
@@ -80,7 +81,8 @@ object FacebookDetector {
 
         val seekNode = findSeekNode(root)
         val title = findVideoTitle(root, seekNode)
-        return VideoState(current, duration, title, stableKey(title, duration), seekNode)
+        val url = findVideoUrl(root)
+        return VideoState(current, duration, title, stableKey(title, duration), url, seekNode)
     }
 
     /**
@@ -186,6 +188,27 @@ object FacebookDetector {
         val best = candidates.maxByOrNull { it.score } ?: return "Facebook video"
         val merged = mergeCaptionParts(candidates, best, anchor)
         return merged.ifBlank { best.text }
+    }
+
+    /** Extract the direct Facebook video/reel URL exposed by the accessibility tree. */
+    fun findVideoUrl(root: AccessibilityNodeInfo?): String {
+        if (root == null) return ""
+        val videoUrlRegex = Regex("""(?i)https?://(?:www\\.)?facebook\\.com/(?:reel(?:s)?|watch|videos|share/(?:v|r)|story(?:\\.php)?)[^\\s<>\\\"']+""")
+        var best = ""
+        fun inspectValue(value: CharSequence?) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isBlank()) return
+            val match = videoUrlRegex.find(text)?.value ?: return
+            val cleaned = match.trimEnd('.', ',', ';', ')', ']', '}', '\"', '\\'')
+            if (cleaned.length > best.length) best = cleaned
+        }
+        fun walk(node: AccessibilityNodeInfo) {
+            inspectValue(node.text)
+            inspectValue(node.contentDescription)
+            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
+        }
+        walk(root)
+        return best
     }
 
     private data class Candidate(
