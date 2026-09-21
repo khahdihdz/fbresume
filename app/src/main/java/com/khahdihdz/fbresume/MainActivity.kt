@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -212,100 +213,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAllVideos() {
-        val items = store.all()
+        val allItems = store.all()
         lateinit var dialog: AlertDialog
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(12))
-            background = rounded(surfaceColor, 22)
-        }
-
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(12)); background = rounded(surfaceColor, 22) }
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         titleBox.addView(label("Video đã lưu", 21f, textColor, true))
-        titleBox.addView(label("${items.size} video được lưu trên thiết bị", 12f, secondaryTextColor, false))
+        titleBox.addView(label("${allItems.size} video được lưu trên thiết bị", 12f, secondaryTextColor, false))
         header.addView(titleBox, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(TextView(this).apply {
-            text = "×"
-            textSize = 28f
-            gravity = Gravity.CENTER
-            setTextColor(secondaryTextColor)
-            setOnClickListener { dialog.dismiss() }
-        }, LinearLayout.LayoutParams(dp(42), dp(42)))
+        header.addView(TextView(this).apply { text = "×"; textSize = 28f; gravity = Gravity.CENTER; setTextColor(secondaryTextColor); setOnClickListener { dialog.dismiss() } }, LinearLayout.LayoutParams(dp(42), dp(42)))
         container.addView(header)
-
+        val search = EditText(this).apply { hint = "Tìm kiếm video đã lưu…"; textSize = 14f; singleLine = true; setPadding(dp(14), 0, dp(14), 0); background = rounded(backgroundColor, 14) }
+        container.addView(search, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply {
-            isVerticalScrollBarEnabled = false
-            addView(list)
+        val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }
+        container.addView(scroll, LinearLayout.LayoutParams(-1, dp(390)).apply { topMargin = dp(10) })
+        fun continueWatching(item: ResumeItem) {
+            if (item.url.isNotBlank()) openUrl(item.url) else try {
+                val intent = packageManager.getLaunchIntentForPackage(FacebookDetector.FACEBOOK_PACKAGE) ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://www.facebook.com/"))
+                startActivity(intent)
+                Toast.makeText(this@MainActivity, "Đã mở Facebook. Mở video “${item.title.take(45)}”; FBResume sẽ tự tiếp tục tại ${formatTime(item.positionMs)}.", Toast.LENGTH_LONG).show()
+            } catch (_: Exception) { openUrl("https://www.facebook.com/") }
         }
-
-        if (items.isEmpty()) {
-            list.addView(label("Chưa có video nào được lưu.", 14f, secondaryTextColor, false).apply {
-                setPadding(0, dp(20), 0, dp(20))
-            })
-        } else {
+        fun renderList(query: String) {
+            list.removeAllViews(); val q = query.trim().lowercase()
+            val items = allItems.filter { q.isBlank() || it.title.lowercase().contains(q) || it.url.lowercase().contains(q) }
+            if (items.isEmpty()) { list.addView(label(if (q.isBlank()) "Chưa có video nào được lưu." else "Không tìm thấy video phù hợp.", 14f, secondaryTextColor, false).apply { setPadding(0, dp(20), 0, dp(20)) }); return }
             items.forEach { item ->
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(12), dp(10), dp(8), dp(10))
-                    background = rounded(backgroundColor, 16)
-                }
-
+                val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(10), dp(8), dp(10)); background = rounded(backgroundColor, 16) }
+                val infoRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                 info.addView(label(item.title.take(100), 14f, textColor, true))
-                info.addView(label(
-                    "Đã xem ${formatTime(item.positionMs)} / ${formatTime(item.durationMs)}",
-                    12f, secondaryTextColor, false
-                ))
-                row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
-
-                row.addView(TextView(this).apply {
-                    text = "Xóa"
-                    textSize = 12f
-                    gravity = Gravity.CENTER
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.rgb(210, 55, 65))
-                    background = rounded(Color.rgb(255, 240, 242), 12)
-                    setPadding(dp(12), 0, dp(12), 0)
-                    setOnClickListener {
-                        showStyledDialog(
-                            title = "Xóa video?",
-                            message = "Xóa \"" + item.title.take(80) + "\" khỏi danh sách video đã lưu?",
-                            positiveText = "Xóa",
-                            negativeText = "Hủy"
-                        ) {
-                            store.remove(item.key)
-                            dialog.dismiss()
-                            render()
-                            showAllVideos()
-                            Toast.makeText(this@MainActivity, "Đã xóa video", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }, LinearLayout.LayoutParams(dp(58), dp(40)).apply { leftMargin = dp(8) })
-
-                list.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
-                    bottomMargin = dp(8)
-                })
+                info.addView(label("Đã xem ${formatTime(item.positionMs)} / ${formatTime(item.durationMs)}", 12f, secondaryTextColor, false))
+                infoRow.addView(info, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(infoRow)
+                val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+                actions.addView(TextView(this).apply { text = "Tiếp tục xem"; textSize = 12f; gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); background = rounded(primaryColor, 12); setPadding(dp(14), 0, dp(14), 0); setOnClickListener { continueWatching(item) } }, LinearLayout.LayoutParams(-2, dp(40)).apply { topMargin = dp(8) })
+                actions.addView(TextView(this).apply { text = "Xóa"; textSize = 12f; gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.rgb(210, 55, 65)); background = rounded(Color.rgb(255, 240, 242), 12); setPadding(dp(14), 0, dp(14), 0); setOnClickListener { showStyledDialog(title = "Xóa video?", message = "Xóa \"" + item.title.take(80) + "\" khỏi danh sách video đã lưu?", positiveText = "Xóa", negativeText = "Hủy") { store.remove(item.key); dialog.dismiss(); render(); showAllVideos(); Toast.makeText(this@MainActivity, "Đã xóa video", Toast.LENGTH_SHORT).show() } } }, LinearLayout.LayoutParams(-2, dp(40)).apply { topMargin = dp(8); leftMargin = dp(8) })
+                row.addView(actions); list.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
             }
         }
-
-        container.addView(scroll, LinearLayout.LayoutParams(-1, dp(430)).apply {
-            topMargin = dp(12)
-        })
-
+        search.addTextChangedListener(object : android.text.TextWatcher { override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit; override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { renderList(s?.toString().orEmpty()) }; override fun afterTextChanged(s: android.text.Editable?) = Unit })
+        renderList("")
         dialog = AlertDialog.Builder(this).setView(container).create()
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        }
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawableResource(android.R.color.transparent) }
         dialog.show()
     }
-
     private fun showStyledDialog(
         title: String,
         message: String,
