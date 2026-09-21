@@ -41,6 +41,25 @@ class FbAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         var saved = store.get(state.key)
 
+        // Migrate legacy entries that were saved before URL detection existed.
+        // Match conservatively by title + duration, then move the old progress
+        // to the current key and attach the newly detected Facebook URL.
+        if (saved == null && state.url.isNotBlank()) {
+            val legacy = store.findLegacyMatch(state.title, state.durationMs)
+            if (legacy != null) {
+                store.remove(legacy.key)
+                saved = legacy.copy(
+                    key = state.key,
+                    title = state.title,
+                    url = state.url,
+                    durationMs = state.durationMs,
+                    updatedAt = now
+                )
+                store.save(saved)
+                if (store.getPendingKey() == legacy.key) store.setPendingKey(state.key)
+            }
+        }
+
         if (saved == null) {
             saved = ResumeItem(state.key, state.title, state.url, state.currentMs, state.durationMs, now)
             store.save(saved)
