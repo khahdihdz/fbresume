@@ -41,22 +41,21 @@ class FbAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         var saved = store.get(state.key)
 
-        // Migrate legacy entries that were saved before URL detection existed.
-        // Match conservatively by title + duration, then move the old progress
-        // to the current key and attach the newly detected Facebook URL.
-        if (saved == null && state.url.isNotBlank()) {
-            val legacy = store.findLegacyMatch(state.title, state.durationMs)
-            if (legacy != null) {
-                store.remove(legacy.key)
-                saved = legacy.copy(
+        // URL is optional. Match the current Facebook video by title + duration
+        // so old entries and entries detected without a URL keep their progress.
+        if (saved == null) {
+            val matched = store.findLegacyMatch(state.title, state.durationMs)
+            if (matched != null) {
+                store.remove(matched.key)
+                saved = matched.copy(
                     key = state.key,
                     title = state.title,
-                    url = state.url,
+                    url = if (state.url.isNotBlank()) state.url else matched.url,
                     durationMs = state.durationMs,
                     updatedAt = now
                 )
                 store.save(saved)
-                if (store.getPendingKey() == legacy.key) store.setPendingKey(state.key)
+                if (store.getPendingKey() == matched.key) store.setPendingKey(state.key)
             }
         }
 
@@ -87,7 +86,14 @@ class FbAccessibilityService : AccessibilityService() {
         if (now - lastSaveMs >= 5_000L) lastSaveMs = now
 
         val pendingTarget = store.getPendingKey()
-        val isPendingTarget = pendingTarget == state.key
+        val pendingItem = pendingTarget?.let { store.get(it) }
+        val pendingMatchesCurrent = pendingItem != null &&
+            store.titleDurationMatch(pendingItem.title, pendingItem.durationMs, state.title, state.durationMs)
+        val isPendingTarget = pendingTarget == state.key || pendingMatchesCurrent
+        if (pendingMatchesCurrent && pendingTarget != state.key) {
+            store.clearPendingKey()
+            store.setPendingKey(state.key)
+        }
         val shouldResume = saved.positionMs >= 5_000L &&
             (isPendingTarget || (
                 state.currentMs < (saved.positionMs - 3_000L).coerceAtLeast(5_000L) &&
