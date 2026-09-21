@@ -67,14 +67,19 @@ class FbAccessibilityService : AccessibilityService() {
         lastKey = state.key
         if (now - lastSaveMs >= 5_000L) lastSaveMs = now
 
+        val pendingTarget = store.getPendingKey()
+        val isPendingTarget = pendingTarget == state.key
         val shouldResume = saved.positionMs >= 5_000L &&
-            state.currentMs < (saved.positionMs - 3_000L).coerceAtLeast(5_000L) &&
-            state.currentMs <= state.durationMs * 0.15
+            (isPendingTarget || (
+                state.currentMs < (saved.positionMs - 3_000L).coerceAtLeast(5_000L) &&
+                state.currentMs <= state.durationMs * 0.15
+            ))
 
         if (shouldResume && resumedKey != state.key && resumeAttempts < 4) {
             resumeAttempts++
             if (FacebookDetector.seek(state.seekNode, saved.positionMs, state.durationMs)) {
                 resumedKey = state.key
+                if (isPendingTarget) store.clearPendingKey()
                 Toast.makeText(
                     this,
                     "Tiếp tục: ${formatTime(saved.positionMs)} — ${saved.title.take(45)}",
