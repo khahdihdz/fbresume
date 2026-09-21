@@ -48,7 +48,6 @@ class ResumeStore(context: Context) {
         val normalizedTitle = normalizeTitle(title)
         return all()
             .asSequence()
-            .filter { it.url.isBlank() }
             .filter { kotlin.math.abs(it.durationMs - durationMs) <= maxOf(5_000L, durationMs / 20L) }
             .map { it to titleSimilarity(normalizedTitle, normalizeTitle(it.title)) }
             .filter { it.second >= 0.62 }
@@ -62,6 +61,15 @@ class ResumeStore(context: Context) {
             .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
+
+    fun titleDurationMatch(titleA: String, durationA: Long, titleB: String, durationB: Long): Boolean {
+        if (durationA <= 0L || durationB <= 0L) return false
+        val durationClose = kotlin.math.abs(durationA - durationB) <= maxOf(5_000L, maxOf(durationA, durationB) / 20L)
+        if (!durationClose) return false
+        val a = normalizeTitle(titleA)
+        val b = normalizeTitle(titleB)
+        return a == b || titleSimilarity(a, b) >= 0.62
+    }
 
     private fun titleSimilarity(a: String, b: String): Double {
         if (a.isBlank() || b.isBlank()) return 0.0
