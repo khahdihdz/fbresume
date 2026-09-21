@@ -240,8 +240,10 @@ class MainActivity : AppCompatActivity() {
         }
         val search = EditText(this).apply {
             hint = "Nhập tên phim, phần, caption…"; textSize = 15f; isSingleLine = true
+            setTextColor(textColor)
+            setHintTextColor(Color.rgb(145, 152, 165))
             setPadding(dp(8), 0, dp(8), 0); background = null
-            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         }
         val clearSearch = TextView(this).apply {
             text = "×"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(secondaryTextColor)
