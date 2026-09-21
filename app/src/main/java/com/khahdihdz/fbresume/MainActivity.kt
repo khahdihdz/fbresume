@@ -284,7 +284,7 @@ class MainActivity : AppCompatActivity() {
                             dialog.dismiss()
                             render()
                             showAllVideos()
-                            Toast.makeText(this, "Đã xóa video", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, "Đã xóa video", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }, LinearLayout.LayoutParams(dp(58), dp(40)).apply { leftMargin = dp(8) })
