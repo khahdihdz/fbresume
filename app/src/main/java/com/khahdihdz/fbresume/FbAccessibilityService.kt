@@ -39,26 +39,53 @@ class FbAccessibilityService : AccessibilityService() {
         if (!FacebookDetector.isFacebook(root.packageName)) return
         val state = FacebookDetector.findVideoState(root) ?: return
         val now = System.currentTimeMillis()
+        var saved = store.get(state.key)
 
-        if (state.key != lastKey || now - lastSaveMs >= 5_000L) {
-            store.save(ResumeItem(state.key, state.title, "", state.currentMs, state.durationMs, now))
-            lastKey = state.key
-            lastSaveMs = now
-        }
+        if (saved == null) {
+            saved = ResumeItem(state.key, state.title, state.url, state.currentMs, state.durationMs, now)
+            store.save(saved)
+        } else {
+            if ((state.url.isNotBlank() && state.url != saved.url) ||
+                state.title != saved.title || state.durationMs != saved.durationMs) {
+                saved = saved.copy(
+                    title = state.title,
+                    url = if (state.url.isNotBlank()) state.url else saved.url,
+                    durationMs = state.durationMs,
+                    updatedAt = now
+                )
+                store.save(saved)
+            }
 
-        val saved = store.get(state.key) ?: return
-        val shouldResume = saved.positionMs >= 5_000L &&
-            state.currentMs < (saved.positionMs - 3_000L).coerceAtLeast(5_000L) &&
-            state.currentMs <= saved.durationMs * 0.15
-
-        if (shouldResume && resumedKey != state.key && resumeAttempts < 3) {
-            resumeAttempts++
-            if (FacebookDetector.seek(state.seekNode, saved.positionMs, saved.durationMs)) {
-                resumedKey = state.key
-                Toast.makeText(this, "Tiếp tục: " + formatTime(saved.positionMs) + " — " + saved.title.take(45), Toast.LENGTH_SHORT).show()
+            if (state.key == lastKey && now - lastSaveMs >= 5_000L &&
+                state.currentMs > saved.positionMs + 3_000L) {
+                saved = saved.copy(positionMs = state.currentMs, updatedAt = now)
+                store.save(saved)
+                lastSaveMs = now
             }
         }
-        if (state.key != resumedKey && state.currentMs > saved.positionMs + 30_000L) resumeAttempts = 0
+
+        lastKey = state.key
+        if (now - lastSaveMs >= 5_000L) lastSaveMs = now
+
+        val shouldResume = saved.positionMs >= 5_000L &&
+            state.currentMs < (saved.positionMs - 3_000L).coerceAtLeast(5_000L) &&
+            state.currentMs <= state.durationMs * 0.15
+
+        if (shouldResume && resumedKey != state.key && resumeAttempts < 4) {
+            resumeAttempts++
+            if (FacebookDetector.seek(state.seekNode, saved.positionMs, state.durationMs)) {
+                resumedKey = state.key
+                Toast.makeText(
+                    this,
+                    "Tiếp tục: ${formatTime(saved.positionMs)} — ${saved.title.take(45)}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        if (state.key != resumedKey && state.currentMs > saved.positionMs + 30_000L) {
+            resumeAttempts = 0
+        }
     }
 
     private fun formatTime(ms: Long): String {
