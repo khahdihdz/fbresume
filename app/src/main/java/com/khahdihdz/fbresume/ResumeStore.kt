@@ -41,6 +41,38 @@ class ResumeStore(context: Context) {
         if (getPendingKey() == key) clearPendingKey()
     }
 
+
+    /** Finds an old saved video that was created before URL capture was added. */
+    fun findLegacyMatch(title: String, durationMs: Long): ResumeItem? {
+        if (title.isBlank() || durationMs <= 0L) return null
+        val normalizedTitle = normalizeTitle(title)
+        return all()
+            .asSequence()
+            .filter { it.url.isBlank() }
+            .filter { kotlin.math.abs(it.durationMs - durationMs) <= maxOf(5_000L, durationMs / 20L) }
+            .map { it to titleSimilarity(normalizedTitle, normalizeTitle(it.title)) }
+            .filter { it.second >= 0.62 }
+            .maxByOrNull { it.second }
+            ?.first
+    }
+
+    private fun normalizeTitle(value: String): String =
+        value.lowercase()
+            .replace(Regex("""https?://\S+"""), " ")
+            .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+    private fun titleSimilarity(a: String, b: String): Double {
+        if (a.isBlank() || b.isBlank()) return 0.0
+        if (a == b) return 1.0
+        val aa = a.split(" ").filter { it.length >= 2 }.toSet()
+        val bb = b.split(" ").filter { it.length >= 2 }.toSet()
+        if (aa.isEmpty() || bb.isEmpty()) return 0.0
+        val intersection = aa.intersect(bb).size.toDouble()
+        return intersection / aa.union(bb).size.toDouble()
+    }
+
     fun setPendingKey(key: String) {
         prefs.edit().putString("pending_resume_key", key).apply()
     }
