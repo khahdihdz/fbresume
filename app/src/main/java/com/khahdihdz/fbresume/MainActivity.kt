@@ -314,7 +314,7 @@ class MainActivity : AppCompatActivity() {
                 info.addView(label(item.title.take(120), 15f, textColor, true))
                 info.addView(label("Đã xem ${formatTime(item.positionMs)} / ${formatTime(item.durationMs)}", 12f, secondaryTextColor, false))
                 info.addView(label(
-                    if (item.url.isNotBlank()) "URL Facebook đã lưu ✓" else "Chưa có URL • cần chọn video trong Facebook",
+                    if (item.url.isNotBlank()) "URL Facebook đã lưu ✓" else "Đang chờ Facebook nhận diện liên kết…",
                     11f, if (item.url.isNotBlank()) Color.rgb(35, 150, 90) else Color.rgb(180, 125, 35), item.url.isNotBlank()
                 ))
                 row.addView(info)
