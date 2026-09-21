@@ -223,7 +223,7 @@ class MainActivity : AppCompatActivity() {
         header.addView(titleBox, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(TextView(this).apply { text = "×"; textSize = 28f; gravity = Gravity.CENTER; setTextColor(secondaryTextColor); setOnClickListener { dialog.dismiss() } }, LinearLayout.LayoutParams(dp(42), dp(42)))
         container.addView(header)
-        val search = EditText(this).apply { hint = "Tìm kiếm video đã lưu…"; textSize = 14f; singleLine = true; setPadding(dp(14), 0, dp(14), 0); background = rounded(backgroundColor, 14) }
+        val search = EditText(this).apply { hint = "Tìm kiếm video đã lưu…"; textSize = 14f; isSingleLine = true; setPadding(dp(14), 0, dp(14), 0); background = rounded(backgroundColor, 14) }
         container.addView(search, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(12) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(list) }
