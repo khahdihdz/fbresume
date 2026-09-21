@@ -33,6 +33,22 @@ class ResumeStore(context: Context) {
     }
 
     fun keys(): List<String> = prefs.all.keys.filter { it.startsWith("item:") }.map { it.removePrefix("item:") }
+
     fun all(): List<ResumeItem> = keys().mapNotNull(::get).sortedByDescending { it.updatedAt }
-    fun remove(key: String) { prefs.edit().remove("item:" + key).apply() }
+
+    fun remove(key: String) {
+        prefs.edit().remove("item:" + key).apply()
+        if (getPendingKey() == key) clearPendingKey()
+    }
+
+    fun setPendingKey(key: String) {
+        prefs.edit().putString("pending_resume_key", key).apply()
+    }
+
+    fun getPendingKey(): String? =
+        prefs.getString("pending_resume_key", null)
+
+    fun clearPendingKey() {
+        prefs.edit().remove("pending_resume_key").apply()
+    }
 }
