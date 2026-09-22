@@ -196,12 +196,12 @@ object FacebookDetector {
      * Facebook changes its accessibility hierarchy frequently, so inspect not only
      * text/contentDescription but also common metadata fields and Bundle extras.
      */
-    fun findVideoUrl(root: AccessibilityNodeInfo?): String {
-        if (root == null) return ""
-
+        val facebookUrlRegex = Regex(
+            """(?i)https?://(?:(?:www|m|web)\.)?facebook\.com/(?:reel(?:s)?(?:/|\?|$)|watch(?:/|\?|$)|videos?(?:/|\?|$)|share/(?:v|r)(?:/|\?|$)|story(?:\.php)?(?:/|\?|$))[^\s<>\"\']*"""
+        )
         val facebookUrlRegex = Regex(
             """(?i)https?://(?:(?:www|m|web)\\.)?facebook\\.com/(?:reel(?:s)?(?:/|\\?|$)|watch(?:/|\\?|$)|videos?(?:/|\\?|$)|share/(?:v|r)(?:/|\\?|$)|story(?:\\.php)?(?:/|\\?|$))[^\\s<>\\\"']*"""
-        )
+                Regex("""(?i)href\s*=\s*[\"\'](https?://[^\"\']+)[\"\']""")
         val fbWatchRegex = Regex("""(?i)https?://(?:www\\.)?fb\\.watch/[A-Za-z0-9_-]+/?""")
         var best = ""
 
@@ -216,7 +216,7 @@ object FacebookDetector {
             ).flatten()
 
             for (candidate in matches) {
-                val cleaned = candidate.trimEnd('.', ',', ';', ':', ')', ']', '}', '"', '\\'')
+                val cleaned = candidate.trimEnd('.', ',', ';', ':', ')', ']', '}', '"')
                 if (isUsefulVideoUrl(cleaned) && cleaned.length > best.length) best = cleaned
             }
         }
