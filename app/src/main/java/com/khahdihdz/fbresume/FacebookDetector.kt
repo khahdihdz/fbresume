@@ -191,17 +191,10 @@ object FacebookDetector {
         return merged.ifBlank { best.text }
     }
 
-    /**
-     * Extract the direct Facebook video/reel URL exposed by the accessibility tree.
-     * Facebook changes its accessibility hierarchy frequently, so inspect not only
-     * text/contentDescription but also common metadata fields and Bundle extras.
-     */
-        val facebookUrlRegex = Regex(
-            """(?i)https?://(?:(?:www|m|web)\.)?facebook\.com/(?:reel(?:s)?(?:/|\?|$)|watch(?:/|\?|$)|videos?(?:/|\?|$)|share/(?:v|r)(?:/|\?|$)|story(?:\.php)?(?:/|\?|$))[^\s<>\"\']*"""
-        )
-        val facebookUrlRegex = Regex(
-            """(?i)https?://(?:(?:www|m|web)\\.)?facebook\\.com/(?:reel(?:s)?(?:/|\\?|$)|watch(?:/|\\?|$)|videos?(?:/|\\?|$)|share/(?:v|r)(?:/|\\?|$)|story(?:\\.php)?(?:/|\\?|$))[^\\s<>\\\"']*"""
-                Regex("""(?i)href\s*=\s*[\"\'](https?://[^\"\']+)[\"\']""")
+    /** Extract the direct Facebook video/reel URL exposed by the accessibility tree. */
+    fun findVideoUrl(root: AccessibilityNodeInfo?): String {
+        if (root == null) return ""
+        val facebookUrlRegex = Regex("""(?i)https?://(?:(?:www|m|web)\\.)?facebook\\.com/(?:reel(?:s)?(?:/|\\?|$)|watch(?:/|\\?|$)|videos?(?:/|\\?|$)|share/(?:v|r)(?:/|\\?|$)|story(?:\\.php)?(?:/|\\?|$))[^\\s<>\\\"']*""")
         val fbWatchRegex = Regex("""(?i)https?://(?:www\\.)?fb\\.watch/[A-Za-z0-9_-]+/?""")
         var best = ""
 
@@ -211,10 +204,8 @@ object FacebookDetector {
             val matches = sequenceOf(
                 facebookUrlRegex.findAll(normalized).map { it.value },
                 fbWatchRegex.findAll(normalized).map { it.value },
-                Regex("""(?i)href\\s*=\\s*[\\\"'](https?://[^\\\"']+)[\\\"']""")
-                    .findAll(normalized).map { it.groupValues[1] }
+                Regex("""(?i)href\\s*=\\s*[\\\"'](https?://[^\\\"']+)[\\\"']""").findAll(normalized).map { it.groupValues[1] }
             ).flatten()
-
             for (candidate in matches) {
                 val cleaned = candidate.trimEnd('.', ',', ';', ':', ')', ']', '}', '"')
                 if (isUsefulVideoUrl(cleaned) && cleaned.length > best.length) best = cleaned
