@@ -13,6 +13,8 @@ class FbAccessibilityService : AccessibilityService() {
     private var lastSaveMs = 0L
     private var resumedKey: String? = null
     private var resumeAttempts = 0
+    private var lastPackageName: String? = null
+    private var lastInspectMs = 0L
 
     private val scan = object : Runnable {
         override fun run() {
@@ -29,14 +31,21 @@ class FbAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.packageName == null || !FacebookDetector.isFacebook(event.packageName)) return
+        val packageName = event?.packageName?.toString() ?: return
+        if (!FacebookDetector.isFacebook(packageName)) return
+        lastPackageName = packageName
         handler.removeCallbacks(scan)
         handler.postDelayed(scan, 250L)
     }
 
     private fun inspect() {
+        val now = System.currentTimeMillis()
+        if (now - lastInspectMs < 350L) return
+        lastInspectMs = now
+
         val root = rootInActiveWindow ?: return
-        if (!FacebookDetector.isFacebook(root.packageName)) return
+        val packageName = root.packageName?.toString() ?: return
+        if (!FacebookDetector.isFacebook(packageName)) return
         val state = FacebookDetector.findVideoState(root) ?: return
         val now = System.currentTimeMillis()
         var saved = store.get(state.key)
