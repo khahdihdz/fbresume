@@ -15,6 +15,13 @@ data class VideoState(
     val seekNode: AccessibilityNodeInfo?
 )
 
+/** Metadata of a video resolved from a shared Facebook link. */
+data class SharedVideoMeta(
+    val url: String,
+    val title: String,
+    val durationMs: Long
+)
+
 object FacebookDetector {
     const val FACEBOOK_PACKAGE = "com.facebook.katana"
     const val FACEBOOK_LITE_PACKAGE = "com.facebook.lite"
@@ -194,8 +201,8 @@ object FacebookDetector {
     /** Extract the direct Facebook video/reel URL exposed by the accessibility tree. */
     fun findVideoUrl(root: AccessibilityNodeInfo?): String {
         if (root == null) return ""
-        val facebookUrlRegex = Regex("""(?i)https?://(?:(?:www|m|web)\\.)?facebook\\.com/(?:reel(?:s)?(?:/|\\?|$)|watch(?:/|\\?|$)|videos?(?:/|\\?|$)|share/(?:v|r)(?:/|\\?|$)|story(?:\\.php)?(?:/|\\?|$))[^\\s<>\\\"']*""")
-        val fbWatchRegex = Regex("""(?i)https?://(?:www\\.)?fb\\.watch/[A-Za-z0-9_-]+/?""")
+        val facebookUrlRegex = Regex("""(?i)https?://(?:(?:www|m|web)\.)?facebook\.com/(?:reel(?:s)?(?:/|\?|$)|watch(?:/|\?|$)|videos?(?:/|\?|$)|share/(?:v|r)(?:/|\?|$)|story(?:\.php)?(?:/|\?|$))[^\s<>"']*""")
+        val fbWatchRegex = Regex("""(?i)https?://(?:www\.)?fb\.watch/[A-Za-z0-9_-]+/?""")
         var best = ""
 
         fun consider(value: String) {
@@ -204,7 +211,7 @@ object FacebookDetector {
             val matches = sequenceOf(
                 facebookUrlRegex.findAll(normalized).map { it.value },
                 fbWatchRegex.findAll(normalized).map { it.value },
-                Regex("""(?i)href\\s*=\\s*[\\\"'](https?://[^\\\"']+)[\\\"']""").findAll(normalized).map { it.groupValues[1] }
+                Regex("""(?i)href\s*=\s*["'](https?://[^"']+)["']""").findAll(normalized).map { it.groupValues[1] }
             ).flatten()
             for (candidate in matches) {
                 val cleaned = candidate.trimEnd('.', ',', ';', ':', ')', ']', '}', '"')
@@ -259,6 +266,194 @@ object FacebookDetector {
         if (lower.contains("facebook.com/story")) return true
         return lower.contains("fb.watch/")
     }
+
+    //region Shared link handling
+
+    private val sharedUrlRegex = Regex(
+        """(?i)(?:https?://)?(?:[\w-]+\.)?(?:facebook\.com|fb\.watch|fb\.me)/[^\s<>"']+"""
+    )
+    private val trailingPunctuation = charArrayOf('.', ',', ';', ':', ')', ']', '}', '"', '\'', '…')
+
+    /** Extracts the first Facebook video URL from text shared via ACTION_SEND. */
+    fun extractSharedVideoUrl(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        val source = text.replace("&amp;", "&")
+        var fallback: String? = null
+        for (match in sharedUrlRegex.findAll(source)) {
+            var candidate = match.value.trim().trimEnd(*trailingPunctuation)
+            if (candidate.startsWith("http")) {
+                // keep as-is
+            } else if (candidate.startsWith("//")) {
+                candidate = "https:$candidate"
+            } else {
+                candidate = "https://$candidate"
+            }
+            val lower = candidate.lowercase()
+            if (!lower.contains("facebook.com") && !lower.contains("fb.watch") && !lower.contains("fb.me")) continue
+            if (isUsefulVideoUrl(candidate)) return candidate
+            if (fallback == null) fallback = candidate
+        }
+        return fallback
+    }
+
+    /** Normalizes a Facebook video URL by dropping tracking query parameters. */
+    fun normalizeVideoUrl(url: String): String {
+        var value = url.trim().replace("&amp;", "&")
+        val fragment = value.indexOf('#')
+        if (fragment >= 0) value = value.substring(0, fragment)
+        val queryStart = value.indexOf('?')
+        if (queryStart >= 0) {
+            val path = value.substring(0, queryStart)
+            val params = value.substring(queryStart + 1).split('&').filter { it.isNotBlank() }
+            val keepV = params.firstOrNull { it.substringBefore('=').lowercase() == "v" }?.substringAfter('=')
+            value = if (!keepV.isNullOrBlank()) "$path?v=$keepV" else path
+        }
+        return value.trimEnd('/')
+    }
+
+    /** Stable identifier of the video inside a Facebook URL, or null when unknown. */
+    fun videoIdOf(url: String): String? {
+        if (url.isBlank()) return null
+        val value = url.replace("&amp;", "&")
+        val patterns = listOf(
+            Regex("""(?i)/reels?/([a-z0-9_-]+)"""),
+            Regex("""(?i)/videos?/(\d+)"""),
+            Regex("""(?i)/share/[vr]/([a-z0-9_-]+)"""),
+            Regex("""(?i)story\.php\?v=(\d+)"""),
+            Regex("""(?i)[?&]v=(\d+)"""),
+            Regex("""(?i)fb\.watch/([a-z0-9_-]+)""")
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(value) ?: continue
+            return match.groupValues[1]
+        }
+        return null
+    }
+
+    /** Key used to pre-register a video discovered from a shared link. */
+    fun urlKey(url: String): String {
+        val id = videoIdOf(url)
+        if (!id.isNullOrBlank()) return "vid_" + id.lowercase()
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest(normalizeVideoUrl(url).lowercase().toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }.take(24)
+    }
+
+    /**
+     * Resolves a shared Facebook video link: follows redirects (fb.watch,
+     * share/v, share/r) and reads page metadata to detect the total video
+     * duration and title. Best effort — Facebook may return a login wall
+     * for private videos.
+     */
+    fun fetchVideoMeta(rawUrl: String): SharedVideoMeta? {
+        if (rawUrl.isBlank()) return null
+        val fetched = fetchVideoHtml(rawUrl) ?: return null
+        val (finalUrl, html) = fetched
+        if (html.isBlank()) return null
+        val durationMs = parseDurationMsFromHtml(html)
+        val title = parseTitleFromHtml(html)
+        if (durationMs <= 0L && title.isBlank()) return null
+        return SharedVideoMeta(
+            url = normalizeVideoUrl(finalUrl),
+            title = title.ifBlank { "Video Facebook" },
+            durationMs = durationMs
+        )
+    }
+
+    /** Fetches page HTML while following HTTP redirects manually. */
+    private fun fetchVideoHtml(rawUrl: String): Pair<String, String>? {
+        var url = rawUrl
+        var redirects = 0
+        while (redirects < 6) {
+            val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            try {
+                connection.instanceFollowRedirects = false
+                connection.setRequestProperty(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                        "Version/4.0 Chrome/124.0.0.0 Mobile Safari/537.36"
+                )
+                connection.setRequestProperty("Accept-Language", "vi,en-US;q=0.9,en;q=0.8")
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 10_000
+                val code = connection.responseCode
+                val location = connection.getHeaderField("Location")
+                val body = try {
+                    connection.inputStream.bufferedReader().use { it.readText() }
+                } catch (_: Exception) {
+                    ""
+                }
+                if (code in 300..399 && !location.isNullOrBlank()) {
+                    url = java.net.URL(java.net.URL(url), location).toString()
+                    redirects++
+                    continue
+                }
+                return url to body
+            } finally {
+                connection.disconnect()
+            }
+        }
+        return null
+    }
+
+    /** Reads the total video duration from page HTML. Returns milliseconds, 0 if unknown. */
+    fun parseDurationMsFromHtml(html: String): Long {
+        // pattern to isMilliseconds
+        val patterns = listOf(
+            Regex("""(?i)og:video:duration[^>]*?content=["']?(\d+)""") to false,
+            Regex("""(?i)content=["']?(\d+)["']?[^>]*?og:video:duration""") to false,
+            Regex("""(?i)"video_durationSeconds"\s*:\s*"?(\d+)""") to false,
+            Regex("""(?i)"playable_url_duration_in_ms"\s*:\s*(\d+)""") to true,
+            Regex("""(?i)"duration_in_ms"\s*:\s*(\d+)""") to true,
+            Regex("""(?i)"playback_duration"\s*:\s*"?(\d+)""") to false,
+            Regex("""(?i)"videoDuration"\s*:\s*"?(\d+)""") to false,
+            Regex("""(?i)"video_duration"\s*:\s*"?(\d+)""") to false
+        )
+        for ((pattern, isMilliseconds) in patterns) {
+            val match = pattern.find(html) ?: continue
+            val value = match.groupValues[1].toLongOrNull() ?: continue
+            if (value <= 0L) continue
+            return if (isMilliseconds) value else value * 1000L
+        }
+        return 0L
+    }
+
+    /** Reads the video title (og:title / twitter:title) from page HTML. */
+    fun parseTitleFromHtml(html: String): String {
+        val patterns = listOf(
+            Regex("""(?i)<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']*)["']"""),
+            Regex("""(?i)<meta[^>]*content=["']([^"']*)["'][^>]*property=["']og:title["']"""),
+            Regex("""(?i)<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']*)["']"""),
+            Regex("""(?i)<title[^>]*>([^<]{3,})</title>""")
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(html) ?: continue
+            val value = decodeHtmlEntities(match.groupValues[1]).replace(Regex("\\s+"), " ").trim()
+            if (value.isBlank()) continue
+            if (pattern.pattern.startsWith("(?i)<title")) {
+                // <title> usually carries boilerplate such as "Facebook"; still
+                // accept it when it contains something beyond the brand name.
+                if (value.equals("Facebook", ignoreCase = true) ||
+                    value.equals("Facebook Watch", ignoreCase = true)) continue
+            }
+            return value
+        }
+        return ""
+    }
+
+    private fun decodeHtmlEntities(value: String): String = value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#039;", "'")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+
+    //endregion
+
 
     private data class Candidate(
         val text: String,
