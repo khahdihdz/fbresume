@@ -15,11 +15,17 @@ class FbAccessibilityService : AccessibilityService() {
     private var resumeAttempts = 0
     private var lastPackageName: String? = null
     private var lastInspectMs = 0L
+    private var lastFound = false
+
+    // Quét thích ứng: nhanh khi đang có video để không bỏ sót tiến độ,
+    // chậm hẳn khi màn hình không có video để tránh giật Facebook.
+    private val activeIntervalMs = 1000L
+    private val idleIntervalMs = 2500L
 
     private val scan = object : Runnable {
         override fun run() {
-            inspect()
-            handler.postDelayed(this, 1500L)
+            val found = inspect()
+            handler.postDelayed(this, if (found) activeIntervalMs else idleIntervalMs)
         }
     }
 
@@ -38,15 +44,20 @@ class FbAccessibilityService : AccessibilityService() {
         handler.postDelayed(scan, 250L)
     }
 
-    private fun inspect() {
+    private fun inspect(): Boolean {
         val now = System.currentTimeMillis()
-        if (now - lastInspectMs < 350L) return
+        if (now - lastInspectMs < 350L) return lastFound
         lastInspectMs = now
 
-        val root = rootInActiveWindow ?: return
-        val packageName = root.packageName?.toString() ?: return
-        if (!FacebookDetector.isFacebook(packageName)) return
-        val state = FacebookDetector.findVideoState(root) ?: return
+        val root = rootInActiveWindow ?: return lastFound
+        val packageName = root.packageName?.toString() ?: return lastFound
+        if (!FacebookDetector.isFacebook(packageName)) return lastFound
+        val state = FacebookDetector.findVideoState(root)
+        if (state == null) {
+            lastFound = false
+            return false
+        }
+        lastFound = true
         var saved = store.get(state.key)
 
         // URL is optional. Match the current Facebook video by title + duration
@@ -142,6 +153,7 @@ class FbAccessibilityService : AccessibilityService() {
         if (state.key != resumedKey && state.currentMs > saved.positionMs + 30_000L) {
             resumeAttempts = 0
         }
+        return true
     }
 
     private fun formatTime(ms: Long): String {
