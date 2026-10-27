@@ -42,6 +42,10 @@ object FacebookDetector {
     )
     private val urlOnlyRegex = Regex("(?i)^(https?://|www\\.)\\S+$")
 
+    private val facebookUrlRegex = Regex("""(?i)https?://(?:(?:www|m|web)\.)?facebook\.com/(?:reel(?:s)?(?:/|\?|$)|watch(?:/|\?|$)|videos?(?:/|\?|$)|share/(?:v|r)(?:/|\?|$)|story(?:\.php)?(?:/|\?|$))[^\s<>"']*""")
+    private val fbWatchRegex = Regex("""(?i)https?://(?:www\.)?fb\.watch/[A-Za-z0-9_-]+/?""")
+    private val hrefRegex = Regex("""(?i)href\s*=\s*["'](https?://[^"']+)["']""")
+
     fun isFacebook(packageName: CharSequence?): Boolean {
         val name = packageName?.toString() ?: return false
         return name == FACEBOOK_PACKAGE || name == FACEBOOK_LITE_PACKAGE
@@ -76,21 +80,152 @@ object FacebookDetector {
             timeRegex.findAll(text).mapNotNull { parseTimeMs(it.value) }.toList()
         }.distinct()
 
+    /**
+     * Xây dựng VideoState trong MỘT lượt đi cây Accessibility duy nhất.
+     * Trước đây mỗi thành phần (timestamp, tiêu đề, seek bar, URL) tự đi cây
+     * riêng nên tổng cộng 4 lượt quét mỗi chu kỳ — nguyên nhân chính gây lag
+     * trong ứng dụng Facebook.
+     */
     fun findVideoState(root: AccessibilityNodeInfo?): VideoState? {
-        val texts = collectTexts(root)
-        val times = texts.flatMap { text ->
-            timeRegex.findAll(text).mapNotNull { parseTimeMs(it.value) }
-        }.distinct()
+        if (root == null) return null
+        val scan = scanTree(root)
 
+        val times = scan.timeValues.toList()
         if (times.size < 2) return null
         val duration = times.maxOrNull() ?: return null
         val current = times.filter { it < duration }.maxOrNull() ?: return null
         if (duration < 5_000L || current >= duration) return null
 
-        val seekNode = findSeekNode(root)
-        val title = findVideoTitle(root, seekNode)
-        val url = findVideoUrl(root)
-        return VideoState(current, duration, title, stableKey(title, duration), url, seekNode)
+        val seekNode = scan.seekNode
+        val title = resolveVideoTitle(scan, seekNode)
+        return VideoState(current, duration, title, stableKey(title, duration), scan.url, seekNode)
+    }
+
+    //region Single-pass accessibility scan
+
+    /** Thu thập mọi dữ liệu cần thiết từ cây trong một lượt duy nhất. */
+    private class TreeScan {
+        val timeValues = LinkedHashSet<Long>()
+        val rawCandidates = mutableListOf<RawCandidate>()
+        var seekNode: AccessibilityNodeInfo? = null
+        var seekScore = Int.MIN_VALUE
+        var url = ""
+    }
+
+    private class RawCandidate(
+        val text: String,
+        val rect: Rect,
+        val className: String,
+        val description: String,
+        val visible: Boolean,
+        val clickable: Boolean,
+        val focusable: Boolean
+    )
+
+    private fun scanTree(root: AccessibilityNodeInfo): TreeScan {
+        val scan = TreeScan()
+
+        fun acceptUrl(value: String) {
+            val cleaned = value.trimEnd('.', ',', ';', ':', ')', ']', '}', '"')
+            if (isUsefulVideoUrl(cleaned) && cleaned.length > scan.url.length) scan.url = cleaned
+        }
+
+        fun considerUrl(value: String) {
+            if (value.isBlank()) return
+            val normalized = value.replace("&amp;", "&")
+            facebookUrlRegex.findAll(normalized).forEach { acceptUrl(it.value) }
+            fbWatchRegex.findAll(normalized).forEach { acceptUrl(it.value) }
+            hrefRegex.findAll(normalized).forEach { acceptUrl(it.groupValues[1]) }
+        }
+
+        fun inspectExtras(bundle: Bundle?) {
+            if (bundle == null) return
+            for (key in bundle.keySet()) {
+                val value = bundle.get(key)
+                when (value) {
+                    is CharSequence -> considerUrl(value.toString())
+                    is String -> considerUrl(value)
+                    is Bundle -> inspectExtras(value)
+                    is Array<*> -> value.forEach { item -> if (item is CharSequence) considerUrl(item.toString()) }
+                }
+            }
+        }
+
+        fun walk(node: AccessibilityNodeInfo) {
+            val text = node.text?.toString().orEmpty()
+            val desc = node.contentDescription?.toString().orEmpty()
+
+            // Timestamp MM:SS / HH:MM:SS
+            if (text.isNotEmpty()) {
+                timeRegex.findAll(text).forEach { m ->
+                    parseTimeMs(m.value)?.let(scan.timeValues::add)
+                }
+            }
+            if (desc.isNotEmpty()) {
+                timeRegex.findAll(desc).forEach { m ->
+                    parseTimeMs(m.value)?.let(scan.timeValues::add)
+                }
+            }
+
+            // URL video trong mọi thuộc tính có thể chứa link
+            considerUrl(text)
+            considerUrl(desc)
+            considerUrl(node.viewIdResourceName.orEmpty())
+            inspectExtras(node.extras)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                considerUrl(node.hintText?.toString().orEmpty())
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                considerUrl(node.paneTitle?.toString().orEmpty())
+                considerUrl(node.tooltipText?.toString().orEmpty())
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                considerUrl(node.stateDescription?.toString().orEmpty())
+            }
+
+            // Seek/progress bar điều khiển được
+            val visible = node.isVisibleToUser
+            if (visible && node.isEnabled) {
+                val cls = node.className?.toString()?.lowercase().orEmpty()
+                val lowerDesc = desc.lowercase()
+                if (cls.contains("seekbar") || cls.contains("progressbar") ||
+                    lowerDesc.contains("seek") || lowerDesc.contains("progress")) {
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+                    val score = rect.width() + if (node.rangeInfo != null) 1000 else 0
+                    if (score > scan.seekScore) {
+                        scan.seekNode = node
+                        scan.seekScore = score
+                    }
+                }
+            }
+
+            // Ứng viên tiêu đề/caption video
+            val values = LinkedHashSet<String>()
+            text.trim().takeIf { it.isNotEmpty() }?.let(values::add)
+            desc.trim().takeIf { it.isNotEmpty() }?.let(values::add)
+            if (values.isNotEmpty()) {
+                val rect = Rect().also { node.getBoundsInScreen(it) }
+                val cls = node.className?.toString()?.lowercase().orEmpty()
+                val lowerDesc = desc.lowercase()
+                val clickable = node.isClickable
+                val focusable = node.isFocusable
+                for (raw in values) {
+                    val normalizedText = raw.replace(Regex("\\s+"), " ").trim()
+                    if (isTitleCandidate(normalizedText)) {
+                        scan.rawCandidates += RawCandidate(
+                            normalizedText, rect, cls, lowerDesc,
+                            visible, clickable, focusable
+                        )
+                    }
+                }
+            }
+
+            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
+        }
+
+        walk(root)
+        return scan
     }
 
     /**
@@ -99,161 +234,90 @@ object FacebookDetector {
      * scored by semantic hints, position relative to the video and text shape.
      * If no caption/post is exposed, it falls back to the best video title.
      */
-    fun findVideoTitle(root: AccessibilityNodeInfo?, seekNode: AccessibilityNodeInfo? = null): String {
-        if (root == null) return "Facebook video"
-
+    private fun resolveVideoTitle(scan: TreeScan, seekNode: AccessibilityNodeInfo?): String {
         val anchor = Rect().also { seekNode?.getBoundsInScreen(it) }
         val candidates = mutableListOf<Candidate>()
 
-        fun addCandidate(node: AccessibilityNodeInfo) {
-            val values = listOfNotNull(
-                node.text?.toString()?.trim(),
-                node.contentDescription?.toString()?.trim()
-            ).distinct()
-            if (values.isEmpty()) return
+        for (raw in scan.rawCandidates) {
+            val text = raw.text
+            var score = 0
+            if (anchor.width() > 0) {
+                val horizontalDistance =
+                    kotlin.math.abs((raw.rect.centerX() - anchor.centerX()).toLong())
+                        .coerceAtMost(1600L).toInt()
 
-            val rect = Rect().also { node.getBoundsInScreen(it) }
-            val cls = node.className?.toString()?.lowercase() ?: ""
-            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                // Facebook normally exposes the reel caption immediately
+                // above the video. Text inside/below the video is usually
+                // controls, overlays, comments or unrelated UI.
+                val isAboveVideo = raw.rect.bottom <= anchor.top
+                val isInsideVideo = Rect.intersects(raw.rect, anchor)
+                val gap = (anchor.top - raw.rect.bottom).coerceAtLeast(0)
 
-            for (raw in values) {
-                val text = raw.replace(Regex("\\s+"), " ").trim()
-                if (!isTitleCandidate(text)) continue
-
-                var score = 0
-                if (anchor.width() > 0) {
-                    val horizontalDistance =
-                        kotlin.math.abs((rect.centerX() - anchor.centerX()).toLong())
-                            .coerceAtMost(1600L).toInt()
-
-                    // Facebook normally exposes the reel caption immediately
-                    // above the video. Text inside/below the video is usually
-                    // controls, overlays, comments or unrelated UI.
-                    val isAboveVideo = rect.bottom <= anchor.top
-                    val isInsideVideo = Rect.intersects(rect, anchor)
-                    val gap = (anchor.top - rect.bottom).coerceAtLeast(0)
-
-                    if (isInsideVideo) {
-                        score -= 900
-                    } else if (isAboveVideo) {
-                        score += 1200
-                        score += (700 - gap.coerceAtMost(700)) / 2
-                    } else {
-                        score -= 650
-                    }
-
-                    score -= horizontalDistance / 7
-
-                    val horizontalOverlap = maxOf(
-                        0,
-                        minOf(rect.right, anchor.right) - maxOf(rect.left, anchor.left)
-                    )
-                    if (horizontalOverlap > 0) score += 180
-                    if (rect.width() >= (anchor.width() * 0.45f).toInt()) score += 100
+                if (isInsideVideo) {
+                    score -= 900
+                } else if (isAboveVideo) {
+                    score += 1200
+                    score += (700 - gap.coerceAtMost(700)) / 2
+                } else {
+                    score -= 650
                 }
 
-                if (captionHintRegex.containsMatchIn(cls) || captionHintRegex.containsMatchIn(desc)) {
-                    score += 180
-                }
-                if (titleHintRegex.containsMatchIn(cls) || titleHintRegex.containsMatchIn(desc)) {
-                    score += 80
-                }
-                if (node.isVisibleToUser) score += 50
-                if (node.isClickable) score -= 35
-                if (node.isFocusable) score -= 15
+                score -= horizontalDistance / 7
 
-                // Prefer real post captions over usernames, counters and
-                // accessibility labels.
-                if (text.any { it.isWhitespace() }) score += 90
-                if (text.any { it in ".!?。！？" }) score += 55
-                if (text.any { it == '#' || it == '@' }) score += 35
-                if (text.length in 20..300) score += 90
-                score += text.length.coerceAtMost(600) / 6
-
-                val lower = text.lowercase()
-                if (lower.contains("phần ") || lower.contains("part ") ||
-                    lower.contains("tập ") || lower.contains("episode ")) score += 100
-                if (lower.split(Regex("\\s+")).count { it.length >= 2 } >= 5) score += 80
-
-                // Common Facebook metadata is not the reel caption.
-                if (Regex("(?i)^(\\d+[smhdwy]|\\d+\\s*(giờ|phút|ngày|tuần|tháng|năm))$").matches(text)) score -= 500
-                if (Regex("(?i)^(\\d+[.,]?\\d*\\s*(likes?|comments?|shares?|lượt thích|bình luận|lượt chia sẻ))$").matches(text)) score -= 500
-                if (Regex("(?i)^(follow|following|đang theo dõi|theo dõi|facebook user)$").matches(text)) score -= 500
-                if (text.count { it == '_' } >= 2) score -= 180
-                if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 100
-                if (urlOnlyRegex.matches(text)) score -= 300
-
-                candidates += Candidate(text, score, rect, node)
+                val horizontalOverlap = maxOf(
+                    0,
+                    minOf(raw.rect.right, anchor.right) - maxOf(raw.rect.left, anchor.left)
+                )
+                if (horizontalOverlap > 0) score += 180
+                if (raw.rect.width() >= (anchor.width() * 0.45f).toInt()) score += 100
             }
-        }
 
-        fun walk(node: AccessibilityNodeInfo) {
-            addCandidate(node)
-            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
+            if (captionHintRegex.containsMatchIn(raw.className) ||
+                captionHintRegex.containsMatchIn(raw.description)) {
+                score += 180
+            }
+            if (titleHintRegex.containsMatchIn(raw.className) ||
+                titleHintRegex.containsMatchIn(raw.description)) {
+                score += 80
+            }
+            if (raw.visible) score += 50
+            if (raw.clickable) score -= 35
+            if (raw.focusable) score -= 15
+
+            // Prefer real post captions over usernames, counters and
+            // accessibility labels.
+            if (text.any { it.isWhitespace() }) score += 90
+            if (text.any { it in ".!?。！？" }) score += 55
+            if (text.any { it == '#' || it == '@' }) score += 35
+            if (text.length in 20..300) score += 90
+            score += text.length.coerceAtMost(600) / 6
+
+            val lower = text.lowercase()
+            if (lower.contains("phần ") || lower.contains("part ") ||
+                lower.contains("tập ") || lower.contains("episode ")) score += 100
+            if (lower.split(Regex("\\s+")).count { it.length >= 2 } >= 5) score += 80
+
+            // Common Facebook metadata is not the reel caption.
+            if (Regex("(?i)^(\\d+[smhdwy]|\\d+\\s*(giờ|phút|ngày|tuần|tháng|năm))$").matches(text)) score -= 500
+            if (Regex("(?i)^(\\d+[.,]?\\d*\\s*(likes?|comments?|shares?|lượt thích|bình luận|lượt chia sẻ))$").matches(text)) score -= 500
+            if (Regex("(?i)^(follow|following|đang theo dõi|theo dõi|facebook user)$").matches(text)) score -= 500
+            if (text.count { it == '_' } >= 2) score -= 180
+            if (text.matches(Regex("[A-Za-z0-9_]+"))) score -= 100
+            if (urlOnlyRegex.matches(text)) score -= 300
+
+            candidates += Candidate(text, score, raw.rect)
         }
-        walk(root)
 
         val best = candidates.maxByOrNull { it.score } ?: return "Facebook video"
         val merged = mergeCaptionParts(candidates, best, anchor)
         return merged.ifBlank { best.text }
     }
 
-    /** Extract the direct Facebook video/reel URL exposed by the accessibility tree. */
-    fun findVideoUrl(root: AccessibilityNodeInfo?): String {
-        if (root == null) return ""
-        val facebookUrlRegex = Regex("""(?i)https?://(?:(?:www|m|web)\.)?facebook\.com/(?:reel(?:s)?(?:/|\?|$)|watch(?:/|\?|$)|videos?(?:/|\?|$)|share/(?:v|r)(?:/|\?|$)|story(?:\.php)?(?:/|\?|$))[^\s<>"']*""")
-        val fbWatchRegex = Regex("""(?i)https?://(?:www\.)?fb\.watch/[A-Za-z0-9_-]+/?""")
-        var best = ""
-
-        fun consider(value: String) {
-            if (value.isBlank()) return
-            val normalized = value.replace("&amp;", "&")
-            val matches = sequenceOf(
-                facebookUrlRegex.findAll(normalized).map { it.value },
-                fbWatchRegex.findAll(normalized).map { it.value },
-                Regex("""(?i)href\s*=\s*["'](https?://[^"']+)["']""").findAll(normalized).map { it.groupValues[1] }
-            ).flatten()
-            for (candidate in matches) {
-                val cleaned = candidate.trimEnd('.', ',', ';', ':', ')', ']', '}', '"')
-                if (isUsefulVideoUrl(cleaned) && cleaned.length > best.length) best = cleaned
-            }
-        }
-
-        fun inspectExtras(bundle: Bundle?) {
-            if (bundle == null) return
-            for (key in bundle.keySet()) {
-                val value = bundle.get(key)
-                when (value) {
-                    is CharSequence -> consider(value.toString())
-                    is String -> consider(value)
-                    is Bundle -> inspectExtras(value)
-                    is Array<*> -> value.forEach { item -> if (item is CharSequence) consider(item.toString()) }
-                }
-            }
-        }
-
-        fun walk(node: AccessibilityNodeInfo) {
-            consider(node.text?.toString().orEmpty())
-            consider(node.contentDescription?.toString().orEmpty())
-            consider(node.viewIdResourceName.orEmpty())
-            inspectExtras(node.extras)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                consider(node.hintText?.toString().orEmpty())
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                consider(node.paneTitle?.toString().orEmpty())
-                consider(node.tooltipText?.toString().orEmpty())
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                consider(node.stateDescription?.toString().orEmpty())
-            }
-
-            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
-        }
-
-        walk(root)
-        return best
+    /** Wrapper tương thích: chấm điểm tiêu đề từ cây bất kỳ (không dùng trong luồng nóng). */
+    fun findVideoTitle(root: AccessibilityNodeInfo?, seekNode: AccessibilityNodeInfo? = null): String {
+        if (root == null) return "Facebook video"
+        val scan = scanTree(root)
+        return resolveVideoTitle(scan, seekNode)
     }
 
     private fun isUsefulVideoUrl(url: String): Boolean {
@@ -273,6 +337,13 @@ object FacebookDetector {
         """(?i)(?:https?://)?(?:[\w-]+\.)?(?:facebook\.com|fb\.watch|fb\.me)/[^\s<>"']+"""
     )
     private val trailingPunctuation = charArrayOf('.', ',', ';', ':', ')', ']', '}', '"', '\'', '…')
+
+    /** User-Agent của crawler — Facebook trả og: metadata đầy đủ cho UA này. */
+    private const val SCRAPER_UA =
+        "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+    private const val MOBILE_UA =
+        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Version/4.0 Chrome/124.0.0.0 Mobile Safari/537.36"
 
     /** Extracts the first Facebook video URL from text shared via ACTION_SEND. */
     fun extractSharedVideoUrl(text: String?): String? {
@@ -342,17 +413,40 @@ object FacebookDetector {
     /**
      * Resolves a shared Facebook video link: follows redirects (fb.watch,
      * share/v, share/r) and reads page metadata to detect the total video
-     * duration and title. Best effort — Facebook may return a login wall
-     * for private videos.
+     * duration and title.
+     *
+     * Dùng 2 lượt tải: đầu tiên với UA crawler `facebookexternalhit` (Facebook
+     * trả og:video:duration đầy đủ cho UA này với video công khai), nếu chưa có
+     * thời lượng thì thử lại với UA trình duyệt mobile.
      */
     fun fetchVideoMeta(rawUrl: String): SharedVideoMeta? {
         if (rawUrl.isBlank()) return null
-        val fetched = fetchVideoHtml(rawUrl) ?: return null
-        val (finalUrl, html) = fetched
-        if (html.isBlank()) return null
-        val durationMs = parseDurationMsFromHtml(html)
-        val title = parseTitleFromHtml(html)
+
+        var durationMs = 0L
+        var title = ""
+        var finalUrl = ""
+
+        val scraperPass = fetchVideoHtml(rawUrl, SCRAPER_UA)
+        if (scraperPass != null) {
+            finalUrl = scraperPass.first
+            durationMs = parseDurationMsFromHtml(scraperPass.second)
+            title = parseTitleFromHtml(scraperPass.second)
+        }
+
+        if (durationMs <= 0L) {
+            val mobilePass = fetchVideoHtml(rawUrl, MOBILE_UA)
+            if (mobilePass != null) {
+                val altDuration = parseDurationMsFromHtml(mobilePass.second)
+                if (altDuration > 0L) {
+                    durationMs = altDuration
+                    finalUrl = mobilePass.first
+                }
+                if (title.isBlank()) title = parseTitleFromHtml(mobilePass.second)
+            }
+        }
+
         if (durationMs <= 0L && title.isBlank()) return null
+        if (finalUrl.isBlank()) finalUrl = rawUrl
         return SharedVideoMeta(
             url = normalizeVideoUrl(finalUrl),
             title = title.ifBlank { "Video Facebook" },
@@ -361,21 +455,17 @@ object FacebookDetector {
     }
 
     /** Fetches page HTML while following HTTP redirects manually. */
-    private fun fetchVideoHtml(rawUrl: String): Pair<String, String>? {
+    private fun fetchVideoHtml(rawUrl: String, userAgent: String): Pair<String, String>? {
         var url = rawUrl
         var redirects = 0
         while (redirects < 6) {
             val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
             try {
                 connection.instanceFollowRedirects = false
-                connection.setRequestProperty(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                        "Version/4.0 Chrome/124.0.0.0 Mobile Safari/537.36"
-                )
+                connection.setRequestProperty("User-Agent", userAgent)
                 connection.setRequestProperty("Accept-Language", "vi,en-US;q=0.9,en;q=0.8")
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 10_000
+                connection.connectTimeout = 8_000
+                connection.readTimeout = 8_000
                 val code = connection.responseCode
                 val location = connection.getHeaderField("Location")
                 val body = try {
@@ -398,22 +488,47 @@ object FacebookDetector {
 
     /** Reads the total video duration from page HTML. Returns milliseconds, 0 if unknown. */
     fun parseDurationMsFromHtml(html: String): Long {
+        if (html.isBlank()) return 0L
+        var result = parseDurationPatterns(html)
+        if (result <= 0L) {
+            // JSON lồng trong HTML thường escape dấu quote thành \" — unescape rồi thử lại.
+            result = parseDurationPatterns(html.replace("\\\"", "\""))
+        }
+        return result
+    }
+
+    private fun parseDurationPatterns(html: String): Long {
         // pattern to isMilliseconds
         val patterns = listOf(
             Regex("""(?i)og:video:duration[^>]*?content=["']?(\d+)""") to false,
             Regex("""(?i)content=["']?(\d+)["']?[^>]*?og:video:duration""") to false,
+            Regex("""(?i)\\?"og:video:duration\\?"\s*:\s*\\?"?(\d+)""") to false,
             Regex("""(?i)"video_durationSeconds"\s*:\s*"?(\d+)""") to false,
             Regex("""(?i)"playable_url_duration_in_ms"\s*:\s*(\d+)""") to true,
+            Regex("""(?i)"playable_duration_in_ms"\s*:\s*(\d+)""") to true,
             Regex("""(?i)"duration_in_ms"\s*:\s*(\d+)""") to true,
+            Regex("""(?i)"estimated_lossless_duration"\s*:\s*"?(\d+)""") to false,
+            Regex("""(?i)"playable_duration"\s*:\s*"?(\d+)""") to false,
             Regex("""(?i)"playback_duration"\s*:\s*"?(\d+)""") to false,
             Regex("""(?i)"videoDuration"\s*:\s*"?(\d+)""") to false,
-            Regex("""(?i)"video_duration"\s*:\s*"?(\d+)""") to false
+            Regex("""(?i)"video_duration"\s*:\s*"?(\d+)""") to false,
+            Regex("""(?i)"length_in_second"\s*:\s*"?(\d+)""") to false
         )
         for ((pattern, isMilliseconds) in patterns) {
             val match = pattern.find(html) ?: continue
             val value = match.groupValues[1].toLongOrNull() ?: continue
             if (value <= 0L) continue
             return if (isMilliseconds) value else value * 1000L
+        }
+
+        // ISO-8601: PT#H#M#S (ví dụ og metadata dạng "PT4M37S")
+        val iso = Regex("""(?i)(duration|thời l[ưượng])[^>]{0,80}?\bPT(?:(\d{1,4})H)?(?:(\d{1,4})M)?(\d{1,4})S""").find(html)
+        if (iso != null) {
+            val h = iso.groupValues[2].toLongOrNull() ?: 0L
+            val m = iso.groupValues[3].toLongOrNull() ?: 0L
+            val s = iso.groupValues[4].toLongOrNull() ?: 0L
+            val total = (h * 3600L + m * 60L + s) * 1000L
+            if (total > 0L) return total
         }
         return 0L
     }
@@ -458,8 +573,7 @@ object FacebookDetector {
     private data class Candidate(
         val text: String,
         val score: Int,
-        val rect: Rect,
-        val node: AccessibilityNodeInfo
+        val rect: Rect
     )
 
     /**
@@ -512,32 +626,6 @@ object FacebookDetector {
         if (technicalTextRegex.containsMatchIn(text)) return false
         if (text.count { it.isWhitespace() } > 220) return false
         return true
-    }
-
-    fun findSeekNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (root == null) return null
-
-        var best: AccessibilityNodeInfo? = null
-        var bestScore = Int.MIN_VALUE
-
-        fun walk(node: AccessibilityNodeInfo) {
-            val cls = node.className?.toString()?.lowercase() ?: ""
-            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-            if (node.isVisibleToUser && node.isEnabled &&
-                (cls.contains("seekbar") || cls.contains("progressbar") || desc.contains("seek") || desc.contains("progress"))) {
-                val rect = Rect()
-                node.getBoundsInScreen(rect)
-                val score = rect.width() + if (node.rangeInfo != null) 1000 else 0
-                if (score > bestScore) {
-                    best = node
-                    bestScore = score
-                }
-            }
-            for (i in 0 until node.childCount) node.getChild(i)?.let(::walk)
-        }
-
-        walk(root)
-        return best
     }
 
     fun seek(node: AccessibilityNodeInfo?, targetMs: Long, durationMs: Long): Boolean {
