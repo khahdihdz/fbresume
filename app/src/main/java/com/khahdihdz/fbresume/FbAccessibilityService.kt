@@ -68,6 +68,24 @@ class FbAccessibilityService : AccessibilityService() {
             }
         }
 
+        // Entry created from a shared link (URL-based key). Match the current
+        // video by URL so its saved progress carries over to the on-screen key.
+        if (saved == null && state.url.isNotBlank()) {
+            val matched = store.findUrlMatch(state.url)
+            if (matched != null) {
+                store.remove(matched.key)
+                saved = matched.copy(
+                    key = state.key,
+                    title = state.title,
+                    url = state.url,
+                    durationMs = if (state.durationMs > 0L) state.durationMs else matched.durationMs,
+                    updatedAt = now
+                )
+                store.save(saved)
+                if (store.getPendingKey() == matched.key) store.setPendingKey(state.key)
+            }
+        }
+
         if (saved == null) {
             saved = ResumeItem(state.key, state.title, state.url, state.currentMs, state.durationMs, now)
             store.save(saved)
