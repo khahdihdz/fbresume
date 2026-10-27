@@ -15,6 +15,37 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Nhận video được chia sẻ từ ứng dụng Facebook (Chia sẻ → FBResume) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <!-- Nhận liên kết video Facebook mở trực tiếp (pathPrefix giới hạn cho video/reel/watch/share) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="www.facebook.com" android:pathPrefix="/reel"/>
+                <data android:scheme="https" android:host="m.facebook.com" android:pathPrefix="/reel"/>
+                <data android:scheme="https" android:host="web.facebook.com" android:pathPrefix="/reel"/>
+                <data android:scheme="https" android:host="www.facebook.com" android:pathPrefix="/videos"/>
+                <data android:scheme="https" android:host="m.facebook.com" android:pathPrefix="/videos"/>
+                <data android:scheme="https" android:host="web.facebook.com" android:pathPrefix="/videos"/>
+                <data android:scheme="https" android:host="www.facebook.com" android:pathPrefix="/watch"/>
+                <data android:scheme="https" android:host="m.facebook.com" android:pathPrefix="/watch"/>
+                <data android:scheme="https" android:host="web.facebook.com" android:pathPrefix="/watch"/>
+                <data android:scheme="https" android:host="www.facebook.com" android:pathPrefix="/share/v"/>
+                <data android:scheme="https" android:host="www.facebook.com" android:pathPrefix="/share/r"/>
+                <data android:scheme="https" android:host="www.facebook.com" android:pathPrefix="/story.php"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="fb.watch"/>
+                <data android:scheme="https" android:host="fb.me"/>
+            </intent-filter>
         </activity>
         <service android:name=".FbAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
