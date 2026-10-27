@@ -9,6 +9,9 @@ FBResume sử dụng **Android AccessibilityService** để quan sát các thôn
 ## ✨ Tính năng
 
 - 📱 Hỗ trợ **Facebook** và **Facebook Lite**.
+- 🔗 Nhận **liên kết video được chia sẻ** từ Facebook (Chia sẻ → FBResume) hoặc mở trực tiếp đường dẫn `facebook.com`/`fb.watch`.
+- ⏱️ Tự động **phát hiện tổng thời lượng video** từ liên kết chia sẻ (`og:video:duration`, `video_durationSeconds`, `playable_url_duration_in_ms`,…).
+- ⏳ Hiển thị luôn **thời lượng đang xem** nếu video trong liên kết đã được lưu tiến độ trước đó.
 - ⏱️ Nhận timestamp dạng `MM:SS` và `HH:MM:SS`.
 - 💾 Lưu tiến độ xem video **cục bộ trên thiết bị**.
 - ▶️ Tự động thử **resume/seek** khi mở lại video.
@@ -52,6 +55,27 @@ AccessibilityService
 ```
 
 FBResume chỉ có thể điều khiển vị trí phát nếu giao diện Facebook cung cấp một node Accessibility phù hợp, chẳng hạn seek bar/progress bar hỗ trợ `ACTION_SET_PROGRESS`.
+
+### 🔗 Chia sẻ liên kết video
+
+Ngoài việc theo dõi trực tiếp, FBResume nhận video qua liên kết chia sẻ:
+
+```text
+Facebook (Chia sẻ → FBResume) hoặc mở đường dẫn video
+   │
+   ▼
+FBResume tách URL video (facebook.com/reel|videos|watch|share, fb.watch)
+   │
+   ▼
+Tải trang video (tự theo redirect) → đọc og:title + các trường thời lượng
+   │
+   ▼
+Hiện tổng thời lượng video
+   ├── Nếu URL khớp video đã lưu → hiển thị thêm thời lượng đang xem
+   └── Mở lại video trong Facebook → AccessibilityService tự nối tiến độ
+```
+
+Lưu ý: việc phát hiện thời lượng qua liên kết chỉ áp dụng cho video công khai mà Facebook trả về metadata; với video riêng tư, FBResume vẫn lưu liên kết và tự ghi nhớ tiến độ sau khi bạn mở video.
 
 ## 📋 Định dạng thời gian
 
