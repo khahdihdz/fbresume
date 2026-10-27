@@ -30,13 +30,13 @@ jobs:
       - name: Set CI version
         run: |
           python3 - <<'PY'
-          import os
+          import os, re
           from pathlib import Path
           p = Path("app/build.gradle.kts")
           s = p.read_text()
           n = os.environ["GITHUB_RUN_NUMBER"]
-          s = s.replace("versionCode = 2", f"versionCode = {n}")
-          s = s.replace('versionName = "1.0.1"', f'versionName = "1.0.{n}"')
+          s = re.sub(r"versionCode = \d+", f"versionCode = {n}", s)
+          s = re.sub(r'versionName = "[^"]*"', f'versionName = "1.1.{n}"', s)
           p.write_text(s)
           PY
           grep -E 'versionCode|versionName' app/build.gradle.kts
@@ -151,7 +151,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="v1.0.${{ github.run_number }}"
+          TAG="v1.1.${{ github.run_number }}"
           gh release create "$TAG" \
             app/build/outputs/apk/release/FBResume-release-signed.apk \
             app/build/outputs/apk/debug/FBResume-debug-signed.apk \
