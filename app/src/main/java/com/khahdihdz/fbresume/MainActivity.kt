@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
         val url = FacebookDetector.extractSharedVideoUrl(shared) ?: return
         Toast.makeText(this, "Đang phân tích video Facebook…", Toast.LENGTH_SHORT).show()
         Thread {
-            var meta: FacebookDetector.SharedVideoMeta? = null
+            var meta: SharedVideoMeta? = null
             var failed = false
             try {
                 meta = FacebookDetector.fetchVideoMeta(url)
@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun showSharedVideoResult(url: String, meta: FacebookDetector.SharedVideoMeta?, failed: Boolean) {
+    private fun showSharedVideoResult(url: String, meta: SharedVideoMeta?, failed: Boolean) {
         val existing = try { store.findUrlMatch(url) } catch (_: Exception) { null }
         if (meta == null && existing == null) {
             showStyledDialog(
