@@ -42,6 +42,24 @@ class ResumeStore(context: Context) {
     }
 
 
+    /**
+     * Finds a saved video that points to the same Facebook video as [url],
+     * matched by video id inside the URL (reel/videos/share id) or by the
+     * normalized URL itself.
+     */
+    fun findUrlMatch(url: String): ResumeItem? {
+        if (url.isBlank()) return null
+        val target = FacebookDetector.normalizeVideoUrl(url)
+        val targetId = FacebookDetector.videoIdOf(url)?.lowercase() ?: return all()
+            .firstOrNull { it.url.isNotBlank() &&
+                FacebookDetector.normalizeVideoUrl(it.url).equals(target, ignoreCase = true) }
+        return all().firstOrNull { saved ->
+            val savedId = FacebookDetector.videoIdOf(saved.url)?.lowercase()
+            (savedId != null && savedId == targetId) ||
+                FacebookDetector.normalizeVideoUrl(saved.url).equals(target, ignoreCase = true)
+        }
+    }
+
     /** Finds an old saved video that was created before URL capture was added. */
     fun findLegacyMatch(title: String, durationMs: Long): ResumeItem? {
         if (title.isBlank() || durationMs <= 0L) return null
