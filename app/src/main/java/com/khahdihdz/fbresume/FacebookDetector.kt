@@ -535,37 +535,91 @@ object FacebookDetector {
 
     /** Reads the video title (og:title / twitter:title) from page HTML. */
     fun parseTitleFromHtml(html: String): String {
-        val patterns = listOf(
-            Regex("""(?i)<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']*)["']"""),
-            Regex("""(?i)<meta[^>]*content=["']([^"']*)["'][^>]*property=["']og:title["']"""),
-            Regex("""(?i)<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']*)["']"""),
-            Regex("""(?i)<title[^>]*>([^<]{3,})</title>""")
-        )
-        for (pattern in patterns) {
-            val match = pattern.find(html) ?: continue
-            val value = decodeHtmlEntities(match.groupValues[1]).replace(Regex("\\s+"), " ").trim()
-            if (value.isBlank()) continue
-            if (pattern.pattern.startsWith("(?i)<title")) {
-                // <title> usually carries boilerplate such as "Facebook"; still
-                // accept it when it contains something beyond the brand name.
-                if (value.equals("Facebook", ignoreCase = true) ||
-                    value.equals("Facebook Watch", ignoreCase = true)) continue
-            }
-            return value
+        val ogTitle = extractMetaContent(html, "og:title", "property")
+        val ogDescription = extractMetaContent(html, "og:description", "property")
+        val twitterTitle = extractMetaContent(html, "twitter:title", "name")
+
+        // Facebook thường nhét bộ đếm "N lượt xem · N cảm xúc" và hậu tố
+        // " | Facebook" vào og:title, còn og:description chứa caption thật.
+        val fromTitle = cleanFacebookTitle(ogTitle)
+        val fromDescription = cleanFacebookTitle(ogDescription)
+        val fromTwitter = cleanFacebookTitle(twitterTitle)
+
+        if (fromDescription.isNotBlank()) return fromDescription
+        if (fromTitle.isNotBlank()) return fromTitle
+        if (fromTwitter.isNotBlank()) return fromTwitter
+
+        val match = Regex("""(?i)<title[^>]*>([^<]{3,})</title>""").find(html)
+        if (match != null) {
+            val value = cleanFacebookTitle(match.groupValues[1])
+            if (value.isNotBlank()) return value
         }
         return ""
     }
 
-    private fun decodeHtmlEntities(value: String): String = value
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&#039;", "'")
-        .replace("&#x27;", "'")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
+    private fun extractMetaContent(html: String, key: String, attr: String): String {
+        // attr trước content
+        val first = Regex("""(?i)<meta[^>]*$attr=["']$key["'][^>]*content=["']([^"']*)["']""").find(html)
+        // content trước attr
+        val second = first ?: Regex("""(?i)<meta[^>]*content=["']([^"']*)["'][^>]*$attr=["']$key["']""").find(html)
+        return second?.groupValues?.get(1).orEmpty()
+    }
+
+    /** Tiêu đề boilerplate của Facebook — không dùng làm tên video. */
+    private fun isJunkTitle(value: String): Boolean {
+        val junk = setOf(
+            "facebook", "facebook watch", "log into facebook", "log in to facebook",
+            "log in or sign up", "sign up for facebook", "facebook - log in or sign up",
+            "facebook – log in or sign up", "đăng nhập facebook", "you must log in to continue"
+        )
+        if (value.lowercase() in junk) return true
+        return Regex("(?i)^(log ?(in|into)|đăng nhập|you must log in|vui lòng đăng nhập).{0,50}facebook").containsMatchIn(value)
+    }
+
+    private fun cleanFacebookTitle(raw: String): String {
+        var value = decodeHtmlEntities(raw)
+            .replace('\u00a0', ' ')
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (value.isBlank() || isJunkTitle(value)) return ""
+
+        // Hậu tố " | Facebook" / "- Facebook Watch" / "· Facebook"
+        value = value.replace(Regex("(?i)\\s*[|·–-]\\s*Facebook( Watch)?\\s*$"), "").trim()
+        if (value.isBlank() || isJunkTitle(value)) return ""
+
+        // Tiền tố bộ đếm: "2,4K lượt xem · 38 cảm xúc | "
+        value = value.replace(
+            Regex("(?i)^[^|]{0,120}?\\b(lượt xem|views|cảm xúc|reactions?|likes?|shares?|comments?|lượt thích)\\b[^|]{0,120}?\\|\\s*"),
+            ""
+        ).trim()
+        if (value.isBlank() || isJunkTitle(value)) return ""
+        return value
+    }
+
+    private fun decodeHtmlEntities(value: String): String {
+        var out = Regex("&#x([0-9a-fA-F]+);").replace(value) { m ->
+            decodeNumericEntity(m.groupValues[1], 16) ?: m.value
+        }
+        out = Regex("&#(\\d+);").replace(out) { m ->
+            decodeNumericEntity(m.groupValues[1], 10) ?: m.value
+        }
+        return out
+            .replace("&quot;", "\"")
+            .replace("&#039;", "'")
+            .replace("&#x27;", "'")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    }
+
+    private fun decodeNumericEntity(digits: String, radix: Int): String? {
+        val code = digits.toIntOrNull(radix) ?: return null
+        if (code !in 1..0x10FFFF || code in 0xD800..0xDFFF) return null
+        return String(Character.toChars(code))
+    }
 
     //endregion
 
