@@ -109,7 +109,12 @@ class MainActivity : AppCompatActivity() {
 
         val detail = StringBuilder()
         detail.append("⏱ Tổng thời lượng: ")
-        detail.append(if (durationMs > 0L) formatTime(durationMs) else "không xác định")
+        if (durationMs > 0L) {
+            detail.append(formatTime(durationMs))
+        } else {
+            detail.append("chưa có — Facebook không cung cấp thời lượng qua liên kết,")
+            detail.append(" FBResume sẽ tự ghi nhận khi bạn mở video")
+        }
         detail.append('\n')
         if (positionMs > 0L) {
             val percent = if (durationMs > 0L) " (${positionMs * 100 / durationMs}%)" else ""
