@@ -47,7 +47,6 @@ class FbAccessibilityService : AccessibilityService() {
         val packageName = root.packageName?.toString() ?: return
         if (!FacebookDetector.isFacebook(packageName)) return
         val state = FacebookDetector.findVideoState(root) ?: return
-        val now = System.currentTimeMillis()
         var saved = store.get(state.key)
 
         // URL is optional. Match the current Facebook video by title + duration
