@@ -12,6 +12,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      # Khóa ký dùng chung do repo khahdihdz/apksign quản lý và đồng bộ tự động
+      # qua workflow sync-android-signing (4 secret ANDROID_SIGNING_*).
+      # Fallback về FBRESUME_* để build không gãy nếu secret chưa được đồng bộ.
+      KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 || secrets.FBRESUME_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD || secrets.FBRESUME_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS || secrets.FBRESUME_KEY_ALIAS || 'khahdihdz-release' }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD || secrets.FBRESUME_KEY_PASSWORD }}
+      APKSIGN_SYNCED: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 != '' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,14 +51,15 @@ jobs:
           PY
           grep -E 'versionCode|versionName' app/build.gradle.kts
 
-      - name: Prepare and validate signing keystore
-        env:
-          KEYSTORE_B64: ${{ secrets.FBRESUME_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
+      - name: Prepare and validate signing key from khahdihdz/apksign
         run: |
           set -euo pipefail
+
+          if [ "$APKSIGN_SYNCED" = "true" ]; then
+            echo "Signing key source: khahdihdz/apksign (synced ANDROID_SIGNING_* secrets)"
+          else
+            echo "Signing key source: repository FBRESUME_* secrets (fallback — ANDROID_SIGNING_* not synced yet)"
+          fi
 
           missing=0
           for name in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
@@ -59,14 +70,14 @@ jobs:
           done
 
           if [ "$missing" -ne 0 ]; then
-            echo "::error::Check Settings > Secrets and variables > Actions for repository khahdihdz/fbresume."
+            echo "::error::Khahdihdz/apksign syncs ANDROID_SIGNING_* secrets daily; also check repository secrets."
             exit 1
           fi
 
           KEYSTORE_FILE="$RUNNER_TEMP/fbresume-release.jks"
 
           if ! printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"; then
-            echo "::error::FBRESUME_KEYSTORE_BASE64 is not valid Base64."
+            echo "::error::Signing keystore secret is not valid Base64."
             exit 1
           fi
 
@@ -76,12 +87,12 @@ jobs:
           fi
 
           if ! keytool -list -keystore "$KEYSTORE_FILE" -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            echo "::error::Decoded file is not a valid keystore or FBRESUME_KEYSTORE_PASSWORD is incorrect."
+            echo "::error::Decoded file is not a valid keystore or the store password is incorrect."
             exit 1
           fi
 
           if ! keytool -list -keystore "$KEYSTORE_FILE" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::FBRESUME_KEY_ALIAS was not found in the keystore."
+            echo "::error::Alias '$KEY_ALIAS' was not found in the signing keystore."
             exit 1
           fi
 
@@ -92,9 +103,6 @@ jobs:
       - name: Build signed debug APK
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
-          KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           gradle assembleDebug --stacktrace \
@@ -106,9 +114,6 @@ jobs:
       - name: Build signed release APK
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
-          KEYSTORE_PASSWORD: ${{ secrets.FBRESUME_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.FBRESUME_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.FBRESUME_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           gradle assembleRelease --stacktrace \
