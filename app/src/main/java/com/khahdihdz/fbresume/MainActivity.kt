@@ -33,8 +33,117 @@ class MainActivity : AppCompatActivity() {
     private lateinit var store: ResumeStore
     private val donateUrl = "https://khahdihdz.github.io"
 
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); store = ResumeStore(this); render(); checkForUpdate() }
+    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); store = ResumeStore(this); render(); checkForUpdate(); handleShareIntent(intent) }
     override fun onResume() { super.onResume(); if (::store.isInitialized) render() }
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (::store.isInitialized) handleShareIntent(intent)
+    }
+
+    /**
+     * Nhận liên kết video được chia sẻ từ Facebook (ACTION_SEND) hoặc mở
+     * trực tiếp đường dẫn video (ACTION_VIEW). Ứng dụng tự phân tích trang
+     * video để phát hiện tổng thời lượng; nếu video đã được lưu trước đó thì
+     * hiển thị luôn thời lượng đang xem.
+     */
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        val shared = when (intent.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        } ?: return
+        val url = FacebookDetector.extractSharedVideoUrl(shared) ?: return
+        Toast.makeText(this, "Đang phân tích video Facebook…", Toast.LENGTH_SHORT).show()
+        Thread {
+            var meta: FacebookDetector.SharedVideoMeta? = null
+            var failed = false
+            try {
+                meta = FacebookDetector.fetchVideoMeta(url)
+            } catch (_: Exception) {
+                failed = true
+            }
+            runOnUiThread { showSharedVideoResult(url, meta, failed) }
+        }.start()
+    }
+
+    private fun showSharedVideoResult(url: String, meta: FacebookDetector.SharedVideoMeta?, failed: Boolean) {
+        val existing = try { store.findUrlMatch(url) } catch (_: Exception) { null }
+        if (meta == null && existing == null) {
+            showStyledDialog(
+                title = "Không đọc được thời lượng",
+                message = if (failed) "Không thể kết nối để phân tích liên kết video."
+                else "Facebook không trả về thông tin thời lượng cho liên kết này (video riêng tư hoặc yêu cầu đăng nhập)." +
+                    "\n\nLiên kết: ${url.take(120)}",
+                positiveText = "Mở video trong Facebook",
+                negativeText = "Đóng"
+            ) {
+                openVideoUrl(
+                    ResumeItem(
+                        key = FacebookDetector.urlKey(url),
+                        title = "Video Facebook",
+                        url = FacebookDetector.normalizeVideoUrl(url),
+                        positionMs = 0L,
+                        durationMs = 0L,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+            return
+        }
+
+        val title = meta?.title?.takeIf { it.isNotBlank() && it != "Video Facebook" }
+            ?: existing?.title?.takeIf { it.isNotBlank() }
+            ?: "Video Facebook"
+        val durationMs = maxOf(meta?.durationMs ?: 0L, existing?.durationMs ?: 0L)
+        val positionMs = existing?.positionMs ?: 0L
+        val item = ResumeItem(
+            key = existing?.key ?: FacebookDetector.urlKey(meta?.url ?: url),
+            title = title,
+            url = FacebookDetector.normalizeVideoUrl(meta?.url ?: url),
+            positionMs = positionMs,
+            durationMs = durationMs,
+            updatedAt = existing?.updatedAt ?: System.currentTimeMillis()
+        )
+        store.save(item)
+
+        val detail = StringBuilder()
+        detail.append("⏱ Tổng thời lượng: ")
+        detail.append(if (durationMs > 0L) formatTime(durationMs) else "không xác định")
+        detail.append('\n')
+        if (positionMs > 0L) {
+            val percent = if (durationMs > 0L) " (${positionMs * 100 / durationMs}%)" else ""
+            detail.append("▶️ Đang xem: ").append(formatTime(positionMs)).append(percent).append('\n')
+        } else {
+            detail.append("▶️ Chưa có tiến độ đã lưu\n")
+        }
+        detail.append("\nTiến độ sẽ được tự động ghi nhớ khi bạn xem video.")
+
+        showStyledDialog(
+            title = "Video Facebook đã nhận",
+            message = "🎬 ${title.take(120)}\n\n$detail",
+            positiveText = "Mở video",
+            negativeText = "Để sau"
+        ) { openVideoUrl(item) }
+    }
+
+    private fun openVideoUrl(item: ResumeItem) {
+        store.save(item)
+        if (item.positionMs >= 5_000L) store.setPendingKey(item.key)
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(item.url)).apply {
+                    setPackage(FacebookDetector.FACEBOOK_PACKAGE)
+                }
+            )
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url)))
+            } catch (_: Exception) {
+                Toast.makeText(this, "Không thể mở video Facebook.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     private fun openUrl(url: String) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 
