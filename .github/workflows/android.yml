@@ -74,12 +74,14 @@ jobs:
             exit 1
           fi
 
-          KEYSTORE_FILE="$RUNNER_TEMP/fbresume-release.jks"
+          KEYSTORE_FILE="$RUNNER_TEMP/fbresume-source.jks"
+          NORMALIZED_KEYSTORE="$RUNNER_TEMP/fbresume-signing.p12"
 
-          if ! printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"; then
+          if ! printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 --decode > "$KEYSTORE_FILE"; then
             echo "::error::Signing keystore secret is not valid Base64."
             exit 1
           fi
+          chmod 600 "$KEYSTORE_FILE"
 
           if [ ! -s "$KEYSTORE_FILE" ]; then
             echo "::error::Decoded keystore is empty."
@@ -96,31 +98,64 @@ jobs:
             exit 1
           fi
 
+          # Chuẩn hóa theo workflow android-shared-signing của khahdihdz/apksign:
+          # thử JKS/PKCS12 và cả KEY_PASSWORD lẫn STORE_PASSWORD cho private key,
+          # xuất PKCS12 dùng store password cho cả key để Gradle ký ổn định.
+          imported=false
+          for source_type in JKS PKCS12; do
+            for source_key_password in "$KEY_PASSWORD" "$KEYSTORE_PASSWORD"; do
+              rm -f "$NORMALIZED_KEYSTORE"
+              if keytool -importkeystore \
+                -srckeystore "$KEYSTORE_FILE" \
+                -srcstoretype "$source_type" \
+                -srcstorepass "$KEYSTORE_PASSWORD" \
+                -srcalias "$KEY_ALIAS" \
+                -srckeypass "$source_key_password" \
+                -destkeystore "$NORMALIZED_KEYSTORE" \
+                -deststoretype PKCS12 \
+                -deststorepass "$KEYSTORE_PASSWORD" \
+                -destalias "$KEY_ALIAS" \
+                -destkeypass "$KEYSTORE_PASSWORD" \
+                -noprompt >/dev/null 2>&1 \
+                && keytool -list -keystore "$NORMALIZED_KEYSTORE" -storetype PKCS12 \
+                   -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+                imported=true
+                break 2
+              fi
+            done
+          done
+
+          if [ "$imported" != true ]; then
+            echo "::error::Không đọc được private key của alias '$KEY_ALIAS' với KEY_PASSWORD hoặc store password."
+            exit 1
+          fi
+          chmod 600 "$NORMALIZED_KEYSTORE"
+
           echo "Signing configuration validated successfully."
-          echo "Keystore: valid"
+          echo "Keystore: valid (normalized PKCS12)"
           echo "Alias: configured"
 
       - name: Build signed debug APK
         env:
-          KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
+          KEYSTORE_FILE: ${{ runner.temp }}/fbresume-signing.p12
         run: |
           set -euo pipefail
           gradle assembleDebug --stacktrace \
             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE" \
             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS" \
-            -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
+            -PFBRESUME_KEY_PASSWORD="$KEYSTORE_PASSWORD"
 
       - name: Build signed release APK
         env:
-          KEYSTORE_FILE: ${{ runner.temp }}/fbresume-release.jks
+          KEYSTORE_FILE: ${{ runner.temp }}/fbresume-signing.p12
         run: |
           set -euo pipefail
           gradle assembleRelease --stacktrace \
             -PFBRESUME_KEYSTORE_FILE="$KEYSTORE_FILE" \
             -PFBRESUME_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
             -PFBRESUME_KEY_ALIAS="$KEY_ALIAS" \
-            -PFBRESUME_KEY_PASSWORD="$KEY_PASSWORD"
+            -PFBRESUME_KEY_PASSWORD="$KEYSTORE_PASSWORD"
 
       - name: Verify APK signatures
         run: |
@@ -182,4 +217,4 @@ jobs:
 
       - name: Cleanup signing key
         if: always()
-        run: rm -f "$RUNNER_TEMP/fbresume-release.jks"
+        run: rm -f "$RUNNER_TEMP/fbresume-source.jks" "$RUNNER_TEMP/fbresume-signing.p12"
